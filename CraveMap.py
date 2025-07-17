@@ -41,10 +41,8 @@ def summarize_reviews_and_dishes(reviews):
         "gryphe/mythomax-l2-13b:free"
     ]
 
-
-
     for model in models:
-        st.write(f"🔍 Trying model: {model}")  # Always logs to UI
+#        st.write(f"🔍 Trying model: {model}")  # Always logs to UI
 
         try:
             response = client.chat.completions.create(
@@ -57,14 +55,14 @@ def summarize_reviews_and_dishes(reviews):
 
             # Check if valid 'choices' exist
             if hasattr(response, "choices") and response.choices:
-                st.write(f"✅ Using model: {model}")
+#                st.write(f"✅ Using model: {model}")
                 return response.choices[0].message.content.strip()
             else:
                 st.write(f"⚠️ Model {model} returned no choices.")
                 continue
 
         except Exception as e:
-            st.write(f"❌ Model failed: {model}")
+#            st.write(f"❌ Model failed: {model}")
             continue
 
     st.error("All models are currently unavailable or rate-limited. Please try again later.")
