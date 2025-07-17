@@ -46,11 +46,16 @@ def summarize_reviews_and_dishes(reviews):
                     {"role": "user", "content": prompt}
                 ]
             )
+
+            # Manually check if OpenRouter returned an error object
+            if hasattr(response, "error") or not hasattr(response, "choices"):
+                continue
+
             return response.choices[0].message.content.strip()
-        except Exception as e:
+
+        except Exception:
             continue
 
-    # If all models failed
     st.error("All models are currently unavailable or rate-limited. Please try again later.")
     return ""
 
@@ -112,8 +117,9 @@ if st.button("Find Food") and craving:
 
             if "reviews" in result:
                 summary = summarize_reviews_and_dishes(result["reviews"])
-                st.markdown(f"""**What people say:**
-{summary}""")
+                if summary:
+                    st.markdown(f"""**What people say:**  
+                {summary}""")
 
             if "photos" in result:
                 st.markdown("**Reviewer-uploaded photos (not dish-specific):**")
