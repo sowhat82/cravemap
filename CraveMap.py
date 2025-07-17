@@ -51,7 +51,9 @@ def summarize_reviews_and_dishes(reviews):
             )
 
             # Debug: print actual response object
-            print(response)
+            print(f"Model used: {model}")
+            print(f"Raw response: {response}")
+            print(f"Choices: {getattr(response, 'choices', None)}")
 
             if not hasattr(response, "choices"):
                 continue
