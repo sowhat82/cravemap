@@ -38,6 +38,8 @@ def summarize_reviews_and_dishes(reviews):
         "openchat/openchat-3.5-1210:free"
     ]
 
+    response = None  # initialize before loop
+
     for model in models:
         try:
             response = client.chat.completions.create(
@@ -48,19 +50,21 @@ def summarize_reviews_and_dishes(reviews):
                 ]
             )
 
-            # Manually check if OpenRouter returned an error object
-            if hasattr(response, "error") or not hasattr(response, "choices"):
+            # Debug: print actual response object
+            print(response)
+
+            if not hasattr(response, "choices"):
                 continue
 
             return response.choices[0].message.content.strip()
 
-        except Exception:
+        except Exception as e:
+            print(f"Model {model} failed: {e}")
             continue
-
-    print(response)
 
     st.error("All models are currently unavailable or rate-limited. Please try again later.")
     return ""
+
 
 def get_place_photos(photo_metadata):
     photo_urls = []
