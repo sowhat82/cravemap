@@ -34,10 +34,11 @@ def summarize_reviews_and_dishes(reviews):
     """
 
     models = [
-        "mistralai/mistral-7b-instruct:free",   # Use first if available
-        "openrouter/mistral-7b",                # Good fallback, usually fast
-        "openrouter/mixtral-8x7b"               # Quality fallback
+        "mistralai/mistral-7b-instruct:free",     # primary (free quota)
+        "mistralai/mistral-7b-instruct",          # fallback (paid/credits)
+        "mistralai/mixtral-8x7b-instruct"         # fallback (paid/credits)
     ]
+
 
 
     for model in models:
