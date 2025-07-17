@@ -38,9 +38,9 @@ def summarize_reviews_and_dishes(reviews):
         "openchat/openchat-3.5-1210:free"
     ]
 
-    response = None  # initialize before loop
-
     for model in models:
+        st.write(f"🔍 Trying model: {model}")  # Always logs to UI
+
         try:
             response = client.chat.completions.create(
                 model=model,
@@ -50,23 +50,20 @@ def summarize_reviews_and_dishes(reviews):
                 ]
             )
 
-            # Debug: print actual response object
-            st.write(f"Model used: {model}")
-            st.write(f"Choices: {getattr(response, 'choices', None)}")
-
-
-            if not hasattr(response, "choices"):
+            # Check if valid 'choices' exist
+            if hasattr(response, "choices") and response.choices:
+                st.write(f"✅ Using model: {model}")
+                return response.choices[0].message.content.strip()
+            else:
+                st.write(f"⚠️ Model {model} returned no choices.")
                 continue
 
-            return response.choices[0].message.content.strip()
-
         except Exception as e:
-            print(f"Model {model} failed: {e}")
+            st.write(f"❌ Exception for model {model}: {str(e)}")
             continue
 
     st.error("All models are currently unavailable or rate-limited. Please try again later.")
     return ""
-
 
 def get_place_photos(photo_metadata):
     photo_urls = []
