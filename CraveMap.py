@@ -37,6 +37,8 @@ def summarize_reviews_and_dishes(reviews):
         "mistralai/mistral-7b-instruct:free",     # primary (free quota)
         "mistralai/mistral-7b-instruct",          # fallback (paid/credits)
         "mistralai/mixtral-8x7b-instruct"         # fallback (paid/credits)
+        "openchat/openchat-3.5-0106:free",
+        "gryphe/mythomax-l2-13b:free"
     ]
 
 
@@ -62,7 +64,7 @@ def summarize_reviews_and_dishes(reviews):
                 continue
 
         except Exception as e:
-            st.write(f"❌ Exception for model {model}: {str(e)}")
+            st.write(f"❌ Model failed: {model}")
             continue
 
     st.error("All models are currently unavailable or rate-limited. Please try again later.")
