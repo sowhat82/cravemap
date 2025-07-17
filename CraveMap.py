@@ -1,3 +1,4 @@
+from urllib import response
 import streamlit as st
 import requests
 import os
@@ -55,6 +56,8 @@ def summarize_reviews_and_dishes(reviews):
 
         except Exception:
             continue
+
+    print(response)
 
     st.error("All models are currently unavailable or rate-limited. Please try again later.")
     return ""
