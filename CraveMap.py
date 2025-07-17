@@ -31,13 +31,26 @@ def summarize_reviews_and_dishes(reviews):
 
     {joined}
     """
-    response = client.chat.completions.create(
-        model="mistralai/mistral-7b-instruct:free",
-        messages=[
-            {"role": "system", "content": "You summarize reviews and extract top dishes."},
-            {"role": "user", "content": prompt}
-        ]
-    )
+    try:
+        response = client.chat.completions.create(
+            model="mistralai/mistral-7b-instruct:free",
+            messages=[
+                {"role": "system", "content": "You summarize reviews and extract top dishes."},
+                {"role": "user", "content": prompt}
+            ]
+        )
+    except Exception:
+        try:
+            response = client.chat.completions.create(
+                model="openchat/openchat-3.5-1210:free",
+                messages=[
+                    {"role": "system", "content": "You summarize reviews and extract top dishes."},
+                    {"role": "user", "content": prompt}
+                ]
+            )
+        except Exception:
+            st.error("All models are currently unavailable or rate-limited. Please try again later.")
+            return ""
     return response.choices[0].message.content.strip()
 
 def get_place_photos(photo_metadata):
