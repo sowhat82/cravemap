@@ -105,7 +105,7 @@ st.title("CraveMap: Find Food by Craving")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
 
 craving = st.text_input("What are you craving today?")
-location = st.text_input("Where are you? (City or Area)", placeholder="Tiong Bahru")
+location = st.text_input("Where are you? (City or Area)", placeholder="e.g. Orchard Road")
 
 if st.button("Find Food") and craving:
     keywords = [craving.strip()]
