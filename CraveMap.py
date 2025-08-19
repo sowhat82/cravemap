@@ -3,10 +3,23 @@ import streamlit as st
 import requests
 import os
 from openai import OpenAI
+from dotenv import load_dotenv
 
-# Load API keys
-OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
-GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+# Load environment variables from .env file (for local development)
+load_dotenv()
+
+# Load API keys - try .env first, then Streamlit secrets
+try:
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or st.secrets["OPENROUTER_API_KEY"]
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or st.secrets["GOOGLE_API_KEY"]
+except:
+    # Fallback to environment variables only
+    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    
+    if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
+        st.error("❌ API keys not found! Please check your .env file or Streamlit secrets.")
+        st.stop()
 
 # OpenRouter client
 client = OpenAI(
@@ -77,7 +90,7 @@ def get_place_photos(photo_metadata):
             photo_urls.append(url)
     return photo_urls
 
-def search_food_places(location, keywords):
+def search_food_places(location, keywords, min_rating=0):
     url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
     places = []
     for keyword in keywords:
@@ -89,15 +102,29 @@ def search_food_places(location, keywords):
         data = res.json()
 
         if "results" in data:
-            for place in data["results"][:3]:  # Take only the top result for each keyword
-                places.append({
-                    "name": place.get("name"),
-                    "place_id": place.get("place_id"),
-                    "rating": place.get("rating"),
-                    "address": place.get("formatted_address"),
-                    "url": f"https://www.google.com/maps/search/?api=1&query={place.get('name').replace(' ', '+')}"
-                })
-    return places
+            for place in data["results"][:10]:  # Get more results to filter from
+                rating = place.get("rating")
+                # Filter by minimum rating if rating exists
+                if rating is not None and rating >= min_rating:
+                    places.append({
+                        "name": place.get("name"),
+                        "place_id": place.get("place_id"),
+                        "rating": rating,
+                        "address": place.get("formatted_address"),
+                        "url": f"https://www.google.com/maps/search/?api=1&query={place.get('name').replace(' ', '+')}"
+                    })
+                # If no rating available and min_rating is 0, include it
+                elif rating is None and min_rating == 0:
+                    places.append({
+                        "name": place.get("name"),
+                        "place_id": place.get("place_id"),
+                        "rating": rating,
+                        "address": place.get("formatted_address"),
+                        "url": f"https://www.google.com/maps/search/?api=1&query={place.get('name').replace(' ', '+')}"
+                    })
+    
+    # Limit to top 3 results after filtering
+    return places[:3]
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
@@ -107,12 +134,25 @@ st.markdown("Type in what you're craving and get real nearby suggestions!")
 craving = st.text_input("What are you craving today?")
 location = st.text_input("Where are you? (City or Area)", placeholder="e.g. Orchard Road")
 
+# Rating filter
+st.markdown("### Filter Options")
+min_rating = st.selectbox(
+    "Minimum Google Star Rating:",
+    options=[0, 3.0, 3.5, 4.0, 4.5],
+    index=0,
+    format_func=lambda x: "Any rating" if x == 0 else f"{x}+ stars"
+)
+
 if st.button("Find Food") and craving:
     keywords = [craving.strip()]
     st.write(f"### Searching for: {craving.strip()}")
+    
+    # Show filter info
+    if min_rating > 0:
+        st.write(f"**Filter:** Showing places with {min_rating}+ star rating")
 
     with st.spinner("Searching for places..."):
-        places = search_food_places(location, keywords)
+        places = search_food_places(location, keywords, min_rating)
 
     if places:
         st.success(f"Found {len(places)} suggestion(s)!")
@@ -138,7 +178,10 @@ if st.button("Find Food") and craving:
                     with cols[idx % 3]:
                         st.image(url, use_container_width=True)
     else:
-        st.warning("No matching places found. Try rephrasing your craving or changing your location.")
+        if min_rating > 0:
+            st.warning(f"No places found with {min_rating}+ star rating. Try lowering the rating filter, rephrasing your craving, or changing your location.")
+        else:
+            st.warning("No matching places found. Try rephrasing your craving or changing your location.")
 
 st.markdown("---")
 st.markdown("Want to support this app? [Buy me a coffee ☕](https://www.buymeacoffee.com/alvincheong)")
