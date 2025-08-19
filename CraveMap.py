@@ -138,8 +138,8 @@ location = st.text_input("Where are you? (City or Area)", placeholder="e.g. Orch
 st.markdown("### Filter Options")
 min_rating = st.selectbox(
     "Minimum Google Star Rating:",
-    options=[0, 3.0, 3.5, 4.0, 4.5],
-    index=0,
+    options=[4.5, 4.0, 3.5, 3.0, 0],
+    index=4,
     format_func=lambda x: "Any rating" if x == 0 else f"{x}+ stars"
 )
 
