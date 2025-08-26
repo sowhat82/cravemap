@@ -12,6 +12,19 @@ load_dotenv()
 
 # Load API keys - try .env first, then Streamlit secrets
 try:
+    # Debug: Show what's available
+    st.write("🔍 Debug - Environment variables:")
+    st.write(f"OPENROUTER_API_KEY from env: {bool(os.getenv('OPENROUTER_API_KEY'))}")
+    st.write(f"GOOGLE_API_KEY from env: {bool(os.getenv('GOOGLE_API_KEY'))}")
+    
+    st.write("🔍 Debug - Streamlit secrets:")
+    try:
+        st.write(f"Available secrets: {list(st.secrets.keys()) if hasattr(st.secrets, 'keys') else 'No secrets object'}")
+        st.write(f"OPENROUTER_API_KEY from secrets: {bool(st.secrets.get('OPENROUTER_API_KEY', ''))}")
+        st.write(f"GOOGLE_API_KEY from secrets: {bool(st.secrets.get('GOOGLE_API_KEY', ''))}")
+    except Exception as e:
+        st.write(f"Error accessing secrets: {e}")
+    
     # Try environment variables first (for local development)
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
@@ -28,6 +41,9 @@ try:
 except Exception as e:
     st.error(f"❌ Error loading API keys: {e}")
     st.stop()
+
+st.write(f"🔍 Final result - OpenRouter key loaded: {bool(OPENROUTER_API_KEY)}")
+st.write(f"🔍 Final result - Google key loaded: {bool(GOOGLE_API_KEY)}")
 
 if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
     st.error("❌ API keys not found! Please check your .env file or Streamlit secrets.")
