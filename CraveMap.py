@@ -12,18 +12,28 @@ load_dotenv()
 
 # Load API keys - try .env first, then Streamlit secrets
 try:
-    OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or st.secrets["OPENROUTER_API_KEY"]
-    GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or st.secrets["GOOGLE_API_KEY"]
-    GA_TRACKING_ID = os.getenv("GA_TRACKING_ID") or st.secrets.get("GA_TRACKING_ID", "")
-except:
-    # Fallback to environment variables only
+    # Try environment variables first (for local development)
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    GA_TRACKING_ID = os.getenv("GA_TRACKING_ID") or ""
+    GA_TRACKING_ID = os.getenv("GA_TRACKING_ID", "")
     
-    if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
-        st.error("❌ API keys not found! Please check your .env file or Streamlit secrets.")
-        st.stop()
+    # If not found in environment, try Streamlit secrets (for cloud deployment)
+    if not OPENROUTER_API_KEY:
+        OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
+    if not GOOGLE_API_KEY:
+        GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "")
+    if not GA_TRACKING_ID:
+        GA_TRACKING_ID = st.secrets.get("GA_TRACKING_ID", "")
+        
+except Exception as e:
+    st.error(f"❌ Error loading API keys: {e}")
+    st.stop()
+
+if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
+    st.error("❌ API keys not found! Please check your .env file or Streamlit secrets.")
+    st.error(f"OpenRouter key found: {bool(OPENROUTER_API_KEY)}")
+    st.error(f"Google API key found: {bool(GOOGLE_API_KEY)}")
+    st.stop()
 
 # OpenRouter client
 client = OpenAI(
