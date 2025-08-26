@@ -8,14 +8,18 @@ from dotenv import load_dotenv
 # Load environment variables from .env file (for local development)
 load_dotenv()
 
+# Updated: Analytics and monetization features added
+
 # Load API keys - try .env first, then Streamlit secrets
 try:
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY") or st.secrets["OPENROUTER_API_KEY"]
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or st.secrets["GOOGLE_API_KEY"]
+    GA_TRACKING_ID = os.getenv("GA_TRACKING_ID") or st.secrets.get("GA_TRACKING_ID", "")
 except:
     # Fallback to environment variables only
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    GA_TRACKING_ID = os.getenv("GA_TRACKING_ID") or ""
     
     if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
         st.error("❌ API keys not found! Please check your .env file or Streamlit secrets.")
@@ -128,7 +132,20 @@ def search_food_places(location, keywords, min_rating=0):
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
-st.title("CraveMap: Find Food by Craving")
+
+# Google Analytics 4 tracking
+if GA_TRACKING_ID and GA_TRACKING_ID != "":
+    st.markdown(f"""
+    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){{dataLayer.push(arguments);}}
+      gtag('js', new Date());
+      gtag('config', '{GA_TRACKING_ID}');
+    </script>
+    """, unsafe_allow_html=True)
+
+st.title("CraveMap: Find Food by Craving - UPDATED VERSION")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
 
 craving = st.text_input("What are you craving today?")
@@ -144,6 +161,17 @@ min_rating = st.selectbox(
 )
 
 if st.button("Find Food") and craving:
+    # Analytics: Track search events
+    st.markdown(f"""
+    <script>
+    gtag('event', 'search', {{
+        'search_term': '{craving.strip()}',
+        'location': '{location}',
+        'min_rating': {min_rating}
+    }});
+    </script>
+    """, unsafe_allow_html=True)
+    
     keywords = [craving.strip()]
     st.write(f"### Searching for: {craving.strip()}")
     
@@ -155,6 +183,16 @@ if st.button("Find Food") and craving:
         places = search_food_places(location, keywords, min_rating)
 
     if places:
+        # Analytics: Track successful searches
+        st.markdown(f"""
+        <script>
+        gtag('event', 'search_results', {{
+            'results_count': {len(places)},
+            'search_term': '{craving.strip()}'
+        }});
+        </script>
+        """, unsafe_allow_html=True)
+        
         st.success(f"Found {len(places)} suggestion(s)!")
         for place in places:
             st.markdown(f"## {place['name']}")
@@ -184,4 +222,36 @@ if st.button("Find Food") and craving:
             st.warning("No matching places found. Try rephrasing your craving or changing your location.")
 
 st.markdown("---")
+
+# Quick feedback collection
+st.markdown("### 📝 Help us improve CraveMap!")
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("👍 Helpful"):
+        st.markdown("""
+        <script>
+        gtag('event', 'feedback', {'feedback_type': 'positive'});
+        </script>
+        """, unsafe_allow_html=True)
+        st.success("Thanks for your feedback!")
+
+with col2:
+    if st.button("👎 Not helpful"):
+        st.markdown("""
+        <script>
+        gtag('event', 'feedback', {'feedback_type': 'negative'});
+        </script>
+        """, unsafe_allow_html=True)
+        st.info("Thanks! We'll work on improving.")
+
+with col3:
+    if st.button("💡 Suggest feature"):
+        st.markdown("""
+        <script>
+        gtag('event', 'feedback', {'feedback_type': 'feature_request'});
+        </script>
+        """, unsafe_allow_html=True)
+        st.info("Feature suggestions help us grow!")
+
 st.markdown("Want to support this app? [Buy me a coffee ☕](https://www.buymeacoffee.com/alvincheong)")
