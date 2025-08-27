@@ -4,6 +4,7 @@ import requests
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+import streamlit.components.v1 as components
 
 # Load environment variables from .env file (for local development)
 load_dotenv()
@@ -142,7 +143,8 @@ st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
 
 # Google Analytics 4 tracking
 if GA_TRACKING_ID and GA_TRACKING_ID != "":
-    st.markdown(f"""
+    components.html(f"""
+    <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
@@ -150,7 +152,7 @@ if GA_TRACKING_ID and GA_TRACKING_ID != "":
       gtag('js', new Date());
       gtag('config', '{GA_TRACKING_ID}');
     </script>
-    """, unsafe_allow_html=True)
+    """, height=0)
 
 st.title("CraveMap: Find Food by Craving - UPDATED VERSION")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
