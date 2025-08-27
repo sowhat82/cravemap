@@ -4,7 +4,6 @@ import requests
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
-import streamlit.components.v1 as components
 
 # Load environment variables from .env file (for local development)
 load_dotenv()
@@ -16,15 +15,12 @@ try:
     # Try environment variables first (for local development)
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    GA_TRACKING_ID = os.getenv("GA_TRACKING_ID", "")
     
     # If not found in environment, try Streamlit secrets (for cloud deployment)
     if not OPENROUTER_API_KEY:
         OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
     if not GOOGLE_API_KEY:
         GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "")
-    if not GA_TRACKING_ID:
-        GA_TRACKING_ID = st.secrets.get("GA_TRACKING_ID", "")
         
 except Exception as e:
     st.error(f"❌ Error loading API keys: {e}")
@@ -141,39 +137,7 @@ def search_food_places(location, keywords, min_rating=0):
 # --- Streamlit UI ---
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
 
-# Google Analytics 4 tracking - Simple approach
-if GA_TRACKING_ID and GA_TRACKING_ID != "":
-    # Use a simple image pixel tracker as fallback for Streamlit
-    st.markdown(f"""
-    <script>
-    // Google Analytics 4 tracking
-    (function() {{
-        // Load the gtag library
-        var gtagScript = document.createElement('script');
-        gtagScript.async = true;
-        gtagScript.src = 'https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}';
-        document.head.appendChild(gtagScript);
-        
-        // Initialize gtag
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){{dataLayer.push(arguments);}}
-        gtag('js', new Date());
-        gtag('config', '{GA_TRACKING_ID}');
-        
-        // Manual page view event
-        setTimeout(function() {{
-            if (typeof gtag !== 'undefined') {{
-                gtag('event', 'page_view', {{
-                    page_title: 'CraveMap',
-                    page_location: window.location.href
-                }});
-            }}
-        }}, 1000);
-    }})();
-    </script>
-    """, unsafe_allow_html=True)
-
-st.title("CraveMap: Find Food by Craving - UPDATED VERSION")
+st.title("CraveMap: Find Food by Craving")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
 
 craving = st.text_input("What are you craving today?")
