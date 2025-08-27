@@ -141,18 +141,37 @@ def search_food_places(location, keywords, min_rating=0):
 # --- Streamlit UI ---
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
 
-# Google Analytics 4 tracking
+# Google Analytics 4 tracking - Simple approach
 if GA_TRACKING_ID and GA_TRACKING_ID != "":
-    components.html(f"""
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}"></script>
+    # Use a simple image pixel tracker as fallback for Streamlit
+    st.markdown(f"""
     <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){{dataLayer.push(arguments);}}
-      gtag('js', new Date());
-      gtag('config', '{GA_TRACKING_ID}');
+    // Google Analytics 4 tracking
+    (function() {{
+        // Load the gtag library
+        var gtagScript = document.createElement('script');
+        gtagScript.async = true;
+        gtagScript.src = 'https://www.googletagmanager.com/gtag/js?id={GA_TRACKING_ID}';
+        document.head.appendChild(gtagScript);
+        
+        // Initialize gtag
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){{dataLayer.push(arguments);}}
+        gtag('js', new Date());
+        gtag('config', '{GA_TRACKING_ID}');
+        
+        // Manual page view event
+        setTimeout(function() {{
+            if (typeof gtag !== 'undefined') {{
+                gtag('event', 'page_view', {{
+                    page_title: 'CraveMap',
+                    page_location: window.location.href
+                }});
+            }}
+        }}, 1000);
+    }})();
     </script>
-    """, height=0)
+    """, unsafe_allow_html=True)
 
 st.title("CraveMap: Find Food by Craving - UPDATED VERSION")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
