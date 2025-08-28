@@ -142,11 +142,11 @@ def search_food_places(location, keywords, min_rating=0):
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
 
 # AdSense: Verification code (required for approval)
-if ADSENSE_CLIENT_ID:
-    st.markdown("""
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941892824754"
-         crossorigin="anonymous"></script>
-    """, unsafe_allow_html=True)
+# Always render verification code for Google crawler
+st.markdown("""
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941892824754"
+     crossorigin="anonymous"></script>
+""", unsafe_allow_html=True)
 
 st.title("CraveMap: Find Food by Craving")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
