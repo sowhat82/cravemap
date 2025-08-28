@@ -6,6 +6,13 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import streamlit.components.v1 as components
 
+# AdSense verification meta tag - must be set before any other Streamlit commands
+st.set_page_config(
+    page_title="CraveMap: Find Food by Craving",
+    page_icon="🍕",
+    layout="wide"
+)
+
 # Load environment variables from .env file (for local development)
 load_dotenv()
 
@@ -34,10 +41,11 @@ if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
     st.error("❌ API keys not found! Please check your .env file or Streamlit secrets.")
     st.stop()
 
-# AdSense: Verification code (inject into page head for Google crawler)
+# AdSense: Verification meta tag injection
 st.markdown("""
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941892824754"
-     crossorigin="anonymous"></script>
+<script>
+document.head.insertAdjacentHTML('beforeend', '<meta name="google-adsense-account" content="ca-pub-3585941892824754">');
+</script>
 """, unsafe_allow_html=True)
 
 # OpenRouter client
