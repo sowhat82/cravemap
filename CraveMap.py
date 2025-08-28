@@ -4,6 +4,7 @@ import requests
 import os
 from openai import OpenAI
 from dotenv import load_dotenv
+import streamlit.components.v1 as components
 
 # Load environment variables from .env file (for local development)
 load_dotenv()
@@ -15,12 +16,15 @@ try:
     # Try environment variables first (for local development)
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+    ADSENSE_CLIENT_ID = os.getenv("ADSENSE_CLIENT_ID", "")  # For Google AdSense
     
     # If not found in environment, try Streamlit secrets (for cloud deployment)
     if not OPENROUTER_API_KEY:
         OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY", "")
     if not GOOGLE_API_KEY:
         GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "")
+    if not ADSENSE_CLIENT_ID:
+        ADSENSE_CLIENT_ID = st.secrets.get("ADSENSE_CLIENT_ID", "")
         
 except Exception as e:
     st.error(f"❌ Error loading API keys: {e}")
@@ -137,8 +141,32 @@ def search_food_places(location, keywords, min_rating=0):
 # --- Streamlit UI ---
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
 
+# AdSense: Verification code (required for approval)
+if ADSENSE_CLIENT_ID:
+    st.markdown("""
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941852824754"
+         crossorigin="anonymous"></script>
+    """, unsafe_allow_html=True)
+
 st.title("CraveMap: Find Food by Craving")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
+
+# AdSense: Header ad
+if ADSENSE_CLIENT_ID:
+    components.html(f"""
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT_ID}"
+         crossorigin="anonymous"></script>
+    <!-- CraveMap Header Ad -->
+    <ins class="adsbygoogle"
+         style="display:block"
+         data-ad-client="{ADSENSE_CLIENT_ID}"
+         data-ad-slot="YOUR_AD_SLOT_ID"
+         data-ad-format="auto"
+         data-full-width-responsive="true"></ins>
+    <script>
+         (adsbygoogle = window.adsbygoogle || []).push({{}});
+    </script>
+    """, height=100)
 
 craving = st.text_input("What are you craving today?")
 location = st.text_input("Where are you? (City or Area)", placeholder="e.g. Orchard Road")
@@ -186,7 +214,8 @@ if st.button("Find Food") and craving:
         """, unsafe_allow_html=True)
         
         st.success(f"Found {len(places)} suggestion(s)!")
-        for place in places:
+        
+        for idx, place in enumerate(places):
             st.markdown(f"## {place['name']}")
             st.markdown(f"⭐ {place.get('rating', 'N/A')}\n\n📍 {place['address']}\n\n[🔗 View on Google Maps]({place['url']})")
 
@@ -204,9 +233,28 @@ if st.button("Find Food") and craving:
                 st.markdown("**Reviewer-uploaded photos (not dish-specific):**")
                 photo_urls = get_place_photos(result["photos"])
                 cols = st.columns(3)
-                for idx, url in enumerate(photo_urls):
-                    with cols[idx % 3]:
+                for idx_photo, url in enumerate(photo_urls):
+                    with cols[idx_photo % 3]:
                         st.image(url, use_container_width=True)
+            
+            # AdSense: Ad between restaurants (after first restaurant)
+            if idx == 0 and ADSENSE_CLIENT_ID:
+                st.markdown("---")
+                components.html(f"""
+                <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client={ADSENSE_CLIENT_ID}"
+                     crossorigin="anonymous"></script>
+                <!-- CraveMap Restaurant Ad -->
+                <ins class="adsbygoogle"
+                     style="display:block"
+                     data-ad-client="{ADSENSE_CLIENT_ID}"
+                     data-ad-slot="YOUR_AD_SLOT_ID_2"
+                     data-ad-format="auto"
+                     data-full-width-responsive="true"></ins>
+                <script>
+                     (adsbygoogle = window.adsbygoogle || []).push({{}});
+                </script>
+                """, height=100)
+                st.markdown("---")
     else:
         if min_rating > 0:
             st.warning(f"No places found with {min_rating}+ star rating. Try lowering the rating filter, rephrasing your craving, or changing your location.")
