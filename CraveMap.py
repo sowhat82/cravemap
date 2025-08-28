@@ -144,7 +144,7 @@ st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
 # AdSense: Verification code (required for approval)
 if ADSENSE_CLIENT_ID:
     st.markdown("""
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941852824754"
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941892824754"
          crossorigin="anonymous"></script>
     """, unsafe_allow_html=True)
 
