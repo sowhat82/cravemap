@@ -41,11 +41,16 @@ if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
     st.stop()
 
 # AdSense: Verification meta tag injection
-st.markdown("""
+components.html("""
 <script>
-document.head.insertAdjacentHTML('beforeend', '<meta name="google-adsense-account" content="ca-pub-3585941892824754">');
+// Try to inject meta tag into document head
+var meta = document.createElement('meta');
+meta.name = 'google-adsense-account';
+meta.content = 'ca-pub-3585941892824754';
+document.head.appendChild(meta);
+console.log('AdSense meta tag injected:', meta);
 </script>
-""", unsafe_allow_html=True)
+""", height=0)
 
 # OpenRouter client
 client = OpenAI(
@@ -153,6 +158,12 @@ def search_food_places(location, keywords, min_rating=0):
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
+
+# Handle ads.txt display (accessible via URL parameter)
+query_params = st.query_params
+if query_params.get('page') == 'ads.txt':
+    st.text("google.com, pub-3585941892824754, DIRECT, f08c47fec0942fa0")
+    st.stop()
 
 st.title("CraveMap: Find Food by Craving")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
