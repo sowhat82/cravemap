@@ -9,8 +9,7 @@ import streamlit.components.v1 as components
 # AdSense verification meta tag - must be set before any other Streamlit commands
 st.set_page_config(
     page_title="CraveMap: Find Food by Craving",
-    page_icon="🍕",
-    layout="wide"
+    page_icon="🍕"
 )
 
 # Load environment variables from .env file (for local development)
