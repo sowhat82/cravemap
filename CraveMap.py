@@ -34,6 +34,12 @@ if not OPENROUTER_API_KEY or not GOOGLE_API_KEY:
     st.error("❌ API keys not found! Please check your .env file or Streamlit secrets.")
     st.stop()
 
+# AdSense: Verification code (inject into page head for Google crawler)
+st.markdown("""
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941892824754"
+     crossorigin="anonymous"></script>
+""", unsafe_allow_html=True)
+
 # OpenRouter client
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -140,13 +146,6 @@ def search_food_places(location, keywords, min_rating=0):
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="CraveMap 🍜", page_icon="🍴")
-
-# AdSense: Verification code (required for approval)
-# Always render verification code for Google crawler
-st.markdown("""
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3585941892824754"
-     crossorigin="anonymous"></script>
-""", unsafe_allow_html=True)
 
 st.title("CraveMap: Find Food by Craving")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
