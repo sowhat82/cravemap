@@ -1,0 +1,9 @@
+{
+  "models": [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "deepseek/deepseek-r1-0528:free",
+    "mistralai/mistral-7b-instruct:free",
+    "mistralai/mixtral-8x7b-instruct",
+    "openai/gpt-4o-mini"
+  ]
+}

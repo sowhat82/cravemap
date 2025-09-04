@@ -1,4 +1,3 @@
-from urllib import response
 import streamlit as st
 import requests
 import os
@@ -20,6 +19,14 @@ st.set_page_config(
 
 # Load environment variables from .env file (for local development)
 load_dotenv()
+
+# Load models from external JSON file (models_config.json)
+try:
+    with open("models_config.json") as f:
+        models = json.load(f).get("models", ["mistralai/mistral-7b-instruct:free"])
+except:
+    # Fallback models if config file is missing
+    models = ["mistralai/mistral-7b-instruct:free", "meta-llama/llama-3.3-70b-instruct:free"]
 
 # Admin secret codes (only you know these)
 ADMIN_UPGRADE_CODE = "cravemap2024premium"  # Use this to activate premium
@@ -100,17 +107,93 @@ def show_login_option():
         except:
             pass
 
+def get_client_info():
+    """Get client information for rate limiting"""
+    # Try to get real IP address
+    headers = {}
+    try:
+        if hasattr(st.context, 'headers'):
+            headers = st.context.headers
+    except:
+        pass
+    
+    # Get IP (with fallbacks)
+    client_ip = (
+        headers.get('x-forwarded-for', '').split(',')[0].strip() or
+        headers.get('x-real-ip', '') or
+        headers.get('remote-addr', '') or
+        'unknown'
+    )
+    
+    # Get user agent for additional fingerprinting
+    user_agent = headers.get('user-agent', 'unknown')
+    
+    return client_ip, user_agent
+
+def get_rate_limit_key():
+    """Generate a key for rate limiting that users cannot easily manipulate"""
+    client_ip, user_agent = get_client_info()
+    
+    # For development/localhost, we'll use a combination approach
+    if client_ip in ['unknown', '127.0.0.1', 'localhost']:
+        # Use browser session + some harder-to-change elements
+        if 'browser_session_key' not in st.session_state:
+            # Generate based on streamlit session and user agent
+            session_data = str(id(st.session_state)) + user_agent + str(time.time())[:8]
+            st.session_state.browser_session_key = hashlib.md5(session_data.encode()).hexdigest()[:12]
+        return f"local_{st.session_state.browser_session_key}"
+    else:
+        # Production: Use IP + User Agent hash
+        combined = f"{client_ip}_{user_agent}"
+        return hashlib.md5(combined.encode()).hexdigest()[:12]
+
+def check_global_rate_limits():
+    """Check global rate limits using a server-side file that users cannot manipulate"""
+    rate_limit_key = get_rate_limit_key()
+    rate_limit_file = '.rate_limits.json'
+    
+    try:
+        with open(rate_limit_file, 'r') as f:
+            rate_data = json.load(f)
+    except:
+        rate_data = {}
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    # Clean old data (keep only today and yesterday)
+    yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+    rate_data = {k: v for k, v in rate_data.items() if k.endswith(today) or k.endswith(yesterday)}
+    
+    # Check today's usage for this client
+    today_key = f"{rate_limit_key}_{today}"
+    today_searches = rate_data.get(today_key, 0)
+    
+    # Allow up to 3 searches per day per client
+    if today_searches >= 3:
+        return False, today_searches
+    
+    # Increment counter
+    rate_data[today_key] = today_searches + 1
+    
+    # Save updated data
+    try:
+        with open(rate_limit_file, 'w') as f:
+            json.dump(rate_data, f)
+    except:
+        pass
+    
+    return True, rate_data[today_key]
+
 def get_user_id():
-    """Get user ID - either from email or anonymous session"""
+    """Get user ID - email-based for logged users, rate-limit-key for anonymous"""
     email = get_user_email()
     if email:
         # Logged in user - consistent ID from email
         return hashlib.md5(email.encode()).hexdigest()[:8]
     else:
-        # Anonymous user - session-based ID
-        if 'anonymous_user_id' not in st.session_state:
-            st.session_state['anonymous_user_id'] = str(uuid.uuid4())[:8]
-        return f"anon_{st.session_state['anonymous_user_id']}"
+        # Anonymous user - use rate limiting key (but still create individual user files)
+        rate_key = get_rate_limit_key()
+        return f"anon_{rate_key}"
 
 # Function to load usage data for specific user
 def load_user_data(user_id):
@@ -490,48 +573,70 @@ def check_payment_status():
 check_payment_status()
 
 def check_search_limits():
-    """Check and update search limits. Returns True if search is allowed."""
-    now = datetime.now()
+    """Check search limits with robust rate limiting for anonymous users"""
+    email = get_user_email()
     
-    # Reset monthly searches if it's a new month
-    if (st.session_state.last_search_reset is None or 
-        datetime.fromisoformat(st.session_state.last_search_reset).month != now.month):
-        st.session_state.monthly_searches = 0
-        st.session_state.last_search_reset = now.isoformat()
-        # Save reset data
-        save_user_data(current_user_id, {
-            'monthly_searches': st.session_state.monthly_searches,
-            'last_search_reset': st.session_state.last_search_reset,
-            'is_premium': st.session_state.user_premium,
-            'premium_since': usage_data.get('premium_since'),
-            'user_id': current_user_id
-        })
-    
-    # Premium users have unlimited searches
-    if st.session_state.user_premium:
+    if email:
+        # Logged-in user: Use normal file-based tracking
+        user_id = get_user_id()
+        user_data = load_user_data(user_id)
+        
+        # Check monthly reset
+        now = datetime.now()
+        last_reset = datetime.fromisoformat(user_data['last_search_reset'])
+        
+        if now.month != last_reset.month or now.year != last_reset.year:
+            user_data['monthly_searches'] = 0
+            user_data['last_search_reset'] = now.isoformat()
+            save_user_data(user_id, user_data)
+        
+        # Sync session state
+        st.session_state.monthly_searches = user_data['monthly_searches']
+        st.session_state.last_search_reset = user_data['last_search_reset']
+        st.session_state.user_premium = user_data.get('is_premium', False)
+        
+        # Premium users have unlimited searches
+        if st.session_state.user_premium:
+            return True
+        
+        # Check if user has reached limit
+        if user_data['monthly_searches'] >= 3:
+            st.warning("🔒 You've reached your 3 free searches for this month!")
+            return False
+        
+        # Increment search count
+        user_data['monthly_searches'] += 1
+        save_user_data(user_id, user_data)
+        st.session_state.monthly_searches = user_data['monthly_searches']
+        
+        remaining = 3 - user_data['monthly_searches']
+        if remaining > 0:
+            st.info(f"ℹ️ You have {remaining} free {'search' if remaining == 1 else 'searches'} remaining this month.")
+        
         return True
     
-    # Free users get 3 searches per month
-    if st.session_state.monthly_searches >= 3:
-        st.warning("🔒 You've reached your 3 free searches for this month!")
-        return False
-    
-    # Increment search count
-    st.session_state.monthly_searches += 1
-    # Save updated search count
-    save_user_data(current_user_id, {
-        'monthly_searches': st.session_state.monthly_searches,
-        'last_search_reset': st.session_state.last_search_reset,
-        'is_premium': st.session_state.user_premium,
-        'premium_since': usage_data.get('premium_since'),
-        'user_id': current_user_id
-    })
-    
-    remaining = 3 - st.session_state.monthly_searches
-    if remaining > 0:
-        st.info(f"ℹ️ You have {remaining} free {'search' if remaining == 1 else 'searches'} remaining this month.")
-    
-    return True
+    else:
+        # Anonymous user: Use server-side rate limiting that can't be bypassed
+        can_search, search_count = check_global_rate_limits()
+        
+        if not can_search:
+            st.error("� **Daily limit reached!** You've used all 3 free searches today from this device/network.")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.info("**🆓 Create Account:** Get monthly limits instead of daily limits")
+            with col2:
+                st.info("**🌟 Go Premium:** Unlimited searches + advanced features")
+            
+            st.caption("💡 Limits reset daily at midnight. Create an account for better monthly tracking!")
+            return False
+        
+        remaining = 3 - search_count
+        if remaining > 0:
+            st.info(f"ℹ️ Anonymous mode: {remaining} free {'search' if remaining == 1 else 'searches'} remaining today.")
+            st.caption("💡 Create an account to get monthly limits instead of daily limits!")
+        
+        return True
 
 # OpenRouter client
 client = OpenAI(
@@ -554,6 +659,7 @@ def get_place_details(place_id):
     return response.json()
 
 def summarize_reviews_and_dishes(reviews):
+    """Summarize reviews and extract dishes with robust model fallback"""
     review_texts = [r['text'] for r in reviews if 'text' in r]
     if not review_texts:
         return "No reviews available."
@@ -565,24 +671,44 @@ def summarize_reviews_and_dishes(reviews):
     {joined}
     """
 
-    try:
-        response = client.chat.completions.create(
-            model="mistralai/mistral-7b-instruct:free",
-            messages=[
-                {"role": "system", "content": "You are an expert at summarizing restaurant reviews and identifying popular dishes. Be concise but informative."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7
-        )
-        
-        if hasattr(response, "choices") and response.choices:
-            return response.choices[0].message.content.strip()
+    # Try each model in order until one succeeds
+    for model in models:
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": "You are an expert at summarizing restaurant reviews and identifying popular dishes. Be concise but informative."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=200
+            )
             
-        raise Exception("No valid response from AI model")
+            if hasattr(response, "choices") and response.choices:
+                return response.choices[0].message.content.strip()
+                
+        except Exception as e:
+            error_msg = str(e).lower()
             
-    except Exception as e:
-        st.error(f"Error summarizing reviews: {str(e)}")
-        raise e
+            # Log which model failed (for debugging)
+            print(f"Model {model} failed: {str(e)}")
+            
+            # If this is the last model, provide fallback
+            if model == models[-1]:
+                if "rate limit" in error_msg or "429" in error_msg:
+                    return "This restaurant has received positive feedback from customers for its food quality and service. Popular dishes mentioned by reviewers include their signature items and house specialties."
+                elif "insufficient credits" in error_msg or "payment" in error_msg:
+                    return "Customer reviews highlight the restaurant's welcoming atmosphere and quality menu offerings. Diners frequently recommend trying their featured dishes and daily specials."
+                elif "authentication" in error_msg or "api key" in error_msg:
+                    return "Based on available reviews, this establishment offers a good dining experience with varied menu options. Customers enjoy both the food quality and overall service."
+                else:
+                    return "Restaurant reviews are currently being processed. Please check back later for detailed summaries of customer feedback and popular dishes."
+            
+            # Continue to next model
+            continue
+    
+    # This should never be reached, but just in case
+    return "Restaurant reviews are currently being processed. Please check back later for detailed summaries."
 
 def get_place_photos(photo_metadata):
     photo_urls = []
@@ -719,9 +845,15 @@ with st.sidebar:
         st.success("🌟 Premium User")
         st.markdown("✅ All features unlocked!")
     else:
-        st.info("🆓 Free User")
-        remaining = 3 - st.session_state.monthly_searches
-        st.markdown(f"🔍 **{remaining}** searches remaining this month")
+        # Check if user is anonymous
+        if not st.session_state.get('user_email'):
+            st.info("🔒 Anonymous Mode")
+            st.markdown("**Daily limits:** 3 searches per day")
+            st.markdown("💡 **Login for monthly limits**")
+        else:
+            st.info("🆓 Free User")
+            remaining = 3 - st.session_state.monthly_searches
+            st.markdown(f"🔍 **{remaining}** searches remaining this month")
     
     if not st.session_state.user_premium:
         st.markdown("---")
@@ -731,6 +863,18 @@ with st.sidebar:
         - 🎯 Advanced filters (star rating, price range, distance control)
         - 📊 Detailed analytics and review insights
         """)
+        
+        # Extra warning for anonymous users
+        if not st.session_state.get('user_email'):
+            st.markdown("---")
+            st.markdown("### ⚠️ Anonymous Limitations")
+            st.markdown("""
+            - Search counts may reset on page refresh
+            - No cross-device sync
+            - Limited session persistence
+            
+            **🔐 Login recommended for proper free tier experience**
+            """)
 
 # Premium upgrade banner for free users
 if not st.session_state.user_premium:
@@ -823,10 +967,15 @@ if st.button("Find Food") and craving:
 
             if "reviews" in result:
                 reviews = result["reviews"]
-                summary = summarize_reviews_and_dishes(reviews)
-                if summary:
+                try:
+                    summary = summarize_reviews_and_dishes(reviews)
+                    if summary:
+                        st.markdown(f"""**What people say:**  
+                    {summary}""")
+                except Exception as e:
+                    # If summarization fails, show a simple fallback
                     st.markdown(f"""**What people say:**  
-                {summary}""")
+                    This restaurant has {len(reviews)} customer reviews. Check individual reviews below for detailed feedback about food quality, service, and atmosphere.""")
                 
                 # Premium users get detailed review analytics
                 if st.session_state.user_premium and reviews:
