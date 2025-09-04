@@ -473,6 +473,33 @@ except Exception as e:
     st.stop()
 
 # Stripe functions
+def get_app_url():
+    """Detect the correct app URL for both local and deployed environments"""
+    try:
+        # Check if we're on Streamlit Cloud/deployed environment
+        if (os.getenv('STREAMLIT_SHARING_MODE') or 
+            os.getenv('STREAMLIT_CLOUD') or
+            'streamlit.app' in str(os.getenv('HOSTNAME', '')) or
+            'streamlit.app' in str(os.getenv('SERVER_NAME', ''))):
+            # For Streamlit Cloud, construct the URL
+            return "https://cravemap.streamlit.app"
+        
+        # Check for other cloud platforms
+        if os.getenv('HEROKU_APP_NAME'):
+            return f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com"
+        elif os.getenv('RAILWAY_STATIC_URL'):
+            return os.getenv('RAILWAY_STATIC_URL')
+        elif os.getenv('VERCEL_URL'):
+            return f"https://{os.getenv('VERCEL_URL')}"
+        
+        # Fallback to localhost for development
+        port = st.get_option('server.port') or 8501
+        return f"http://localhost:{port}"
+        
+    except Exception:
+        # Ultimate fallback
+        return "http://localhost:8501"
+
 def create_stripe_checkout_session():
     """Create a Stripe checkout session for premium subscription"""
     try:
@@ -480,6 +507,8 @@ def create_stripe_checkout_session():
         if not user_email:
             st.error("❌ Please login first before upgrading to premium")
             return None
+        
+        app_url = get_app_url()
             
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -499,8 +528,8 @@ def create_stripe_checkout_session():
                 },
                 'quantity': 1,
             }],
-            success_url=f"{st.get_option('server.baseUrlPath') or 'http://localhost:' + str(st.get_option('server.port'))}/?payment_success=true&email={user_email}",
-            cancel_url=f"{st.get_option('server.baseUrlPath') or 'http://localhost:' + str(st.get_option('server.port'))}"
+            success_url=f"{app_url}/?payment_success=true&email={user_email}",
+            cancel_url=f"{app_url}"
         )
         return checkout_session.url
     except Exception as e:
@@ -875,6 +904,18 @@ with st.sidebar:
             
             **🔐 Login recommended for proper free tier experience**
             """)
+    
+    # Debug information (for development/testing)
+    if st.checkbox("🔧 Show URL Debug", help="Verify Stripe redirect URLs"):
+        st.markdown("---")
+        st.markdown("### 🔧 Environment Debug")
+        app_url = get_app_url()
+        st.write(f"**Detected App URL:** {app_url}")
+        st.write(f"**HOSTNAME:** {os.getenv('HOSTNAME', 'Not set')}")
+        st.write(f"**STREAMLIT_CLOUD:** {os.getenv('STREAMLIT_CLOUD', 'Not set')}")
+        st.write(f"**SERVER_NAME:** {os.getenv('SERVER_NAME', 'Not set')}")
+        if st.session_state.get('stripe_mode'):
+            st.write(f"**Stripe Mode:** {st.session_state['stripe_mode']}")
 
 # Premium upgrade banner for free users
 if not st.session_state.user_premium:
