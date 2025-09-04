@@ -77,18 +77,38 @@ try:
     # Auto-detect environment for Stripe configuration
     def detect_environment():
         """Automatically detect if we're in test or live environment"""
-        # Check for manual override first
+        # Check for manual override first (THIS IS THE EASIEST FIX)
         override = st.secrets.get("STRIPE_MODE_OVERRIDE", None)
         if override:
-            return override
+            return override.lower()
             
         # Auto-detect based on context
         try:
-            # Check if running on localhost
+            # Check for Streamlit Cloud deployment
+            # Streamlit Cloud sets these environment variables
+            if (os.getenv('STREAMLIT_SHARING_MODE') or 
+                os.getenv('STREAMLIT_CLOUD') or
+                'streamlit.app' in str(os.getenv('HOSTNAME', '')) or
+                'streamlit.app' in str(os.getenv('SERVER_NAME', '')) or
+                'share.streamlit.io' in str(os.getenv('HOSTNAME', ''))):
+                return "live"
+            
+            # Check for other cloud platforms
+            if (os.getenv('DYNO') or  # Heroku
+                os.getenv('RAILWAY_ENVIRONMENT') or  # Railway
+                os.getenv('VERCEL') or  # Vercel
+                os.getenv('RENDER') or  # Render
+                os.getenv('PYTHONPATH')):  # Many cloud platforms set this
+                return "live"
+            
+            # Check if running on localhost/development
             if hasattr(st, 'get_option'):
-                server_port = st.get_option('server.port')
-                if server_port and (8501 <= server_port <= 8510):  # Typical Streamlit dev ports
-                    return "test"
+                try:
+                    server_port = st.get_option('server.port')
+                    if server_port and (8501 <= server_port <= 8510):  # Typical Streamlit dev ports
+                        return "test"
+                except:
+                    pass
             
             # Check URL context (if available)
             try:
@@ -98,34 +118,53 @@ try:
             except:
                 pass
             
-            # Check if we're in development mode
+            # Check if we're explicitly in development mode
             if os.getenv('STREAMLIT_ENV') == 'development':
                 return "test"
-                
-            # If running on a deployed platform (Streamlit Cloud, Heroku, etc.)
-            if (os.getenv('STREAMLIT_SHARING_MODE') or 
-                os.getenv('DYNO') or 
-                os.getenv('RAILWAY_ENVIRONMENT') or
-                os.getenv('VERCEL') or
-                'streamlit.app' in os.getenv('HOSTNAME', '')):
+            
+            # If we have live Stripe keys but no test keys, assume live
+            if (st.secrets.get("STRIPE_LIVE_SECRET_KEY") and 
+                not st.secrets.get("STRIPE_TEST_SECRET_KEY")):
                 return "live"
                 
         except Exception:
             pass
             
-        # Default to test for safety
-        return "test"
+        # If unsure, check for .env file (indicates local development)
+        if os.path.exists('.env'):
+            return "test"
+            
+        # Final fallback - if we're here, likely deployed
+        return "live"
     
     stripe_mode = detect_environment()
+    
+    # Store in session state for later use
+    st.session_state['stripe_mode'] = stripe_mode
     
     if stripe_mode == "live":
         STRIPE_SECRET_KEY = st.secrets.get("STRIPE_LIVE_SECRET_KEY", "")
         STRIPE_PUBLISHABLE_KEY = st.secrets.get("STRIPE_LIVE_PUBLISHABLE_KEY", "")
-        st.sidebar.error("🔴 **LIVE MODE** - Real payments enabled")
+        # No banner for live mode - looks professional
     else:
         STRIPE_SECRET_KEY = st.secrets.get("STRIPE_TEST_SECRET_KEY", "")
         STRIPE_PUBLISHABLE_KEY = st.secrets.get("STRIPE_TEST_PUBLISHABLE_KEY", "")
         st.sidebar.success("🟡 **TEST MODE** - No real charges")
+    
+    # Debug info (remove after testing)
+    if st.sidebar.checkbox("Show Environment Debug"):
+        st.sidebar.write(f"Detected mode: {stripe_mode}")
+        st.sidebar.write(f"HOSTNAME: {os.getenv('HOSTNAME', 'Not set')}")
+        st.sidebar.write(f"SERVER_NAME: {os.getenv('SERVER_NAME', 'Not set')}")
+        st.sidebar.write(f"STREAMLIT_SHARING_MODE: {os.getenv('STREAMLIT_SHARING_MODE', 'Not set')}")
+        st.sidebar.write(f"STREAMLIT_CLOUD: {os.getenv('STREAMLIT_CLOUD', 'Not set')}")
+        st.sidebar.write(f"PYTHONPATH exists: {bool(os.getenv('PYTHONPATH'))}")
+        st.sidebar.write(f".env exists: {os.path.exists('.env')}")
+        # Show first/last few chars of API key for debugging
+        if STRIPE_SECRET_KEY:
+            st.sidebar.write(f"Stripe key: {STRIPE_SECRET_KEY[:8]}...{STRIPE_SECRET_KEY[-4:]}")
+        else:
+            st.sidebar.write("No Stripe key found!")
     
     # Configure Stripe
     stripe.api_key = STRIPE_SECRET_KEY
