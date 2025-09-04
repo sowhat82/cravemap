@@ -2,3 +2,6 @@ streamlit
 requests
 openai
 python-dotenv
+stripe
+streamlit-authenticator
+bcrypt
