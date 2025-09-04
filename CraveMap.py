@@ -505,7 +505,11 @@ def create_stripe_checkout_session():
     try:
         user_email = st.session_state.get('user_email', '')
         if not user_email:
-            st.error("❌ Please login first before upgrading to premium")
+            return None  # Don't show error here, handle it in the UI
+        
+        # Check if Stripe is properly configured
+        if not stripe.api_key:
+            st.error("❌ Payment system not configured. Please contact support.")
             return None
         
         app_url = get_app_url()
@@ -532,6 +536,12 @@ def create_stripe_checkout_session():
             cancel_url=f"{app_url}"
         )
         return checkout_session.url
+    except stripe.error.InvalidRequestError as e:
+        st.error(f"❌ Payment configuration error: {str(e)}")
+        return None
+    except stripe.error.AuthenticationError as e:
+        st.error("❌ Payment system authentication failed. Please contact support.")
+        return None
     except Exception as e:
         st.error(f"❌ Error creating checkout session: {str(e)}")
         return None
@@ -701,8 +711,11 @@ def summarize_reviews_and_dishes(reviews):
     """
 
     # Try each model in order until one succeeds
-    for model in models:
+    for i, model in enumerate(models, 1):
         try:
+            # Show progress for debugging (won't be visible to users due to spinner)
+            print(f"Trying model {i}/{len(models)}: {model}")
+            
             response = client.chat.completions.create(
                 model=model,
                 messages=[
@@ -714,30 +727,31 @@ def summarize_reviews_and_dishes(reviews):
             )
             
             if hasattr(response, "choices") and response.choices:
+                print(f"✅ Success with model: {model}")
                 return response.choices[0].message.content.strip()
                 
         except Exception as e:
             error_msg = str(e).lower()
             
             # Log which model failed (for debugging)
-            print(f"Model {model} failed: {str(e)}")
+            print(f"❌ Model {model} failed: {str(e)}")
             
             # If this is the last model, provide fallback
             if model == models[-1]:
                 if "rate limit" in error_msg or "429" in error_msg:
-                    return "This restaurant has received positive feedback from customers for its food quality and service. Popular dishes mentioned by reviewers include their signature items and house specialties."
+                    return "⚡ AI summary temporarily unavailable due to high demand. This restaurant has received positive feedback from customers for its food quality and service. Popular dishes mentioned by reviewers include their signature items and house specialties."
                 elif "insufficient credits" in error_msg or "payment" in error_msg:
-                    return "Customer reviews highlight the restaurant's welcoming atmosphere and quality menu offerings. Diners frequently recommend trying their featured dishes and daily specials."
+                    return "⚡ AI summary temporarily unavailable. Customer reviews highlight the restaurant's welcoming atmosphere and quality menu offerings. Diners frequently recommend trying their featured dishes and daily specials."
                 elif "authentication" in error_msg or "api key" in error_msg:
-                    return "Based on available reviews, this establishment offers a good dining experience with varied menu options. Customers enjoy both the food quality and overall service."
+                    return "⚡ AI summary temporarily unavailable. Based on available reviews, this establishment offers a good dining experience with varied menu options. Customers enjoy both the food quality and overall service."
                 else:
-                    return "Restaurant reviews are currently being processed. Please check back later for detailed summaries of customer feedback and popular dishes."
+                    return "⚡ AI summary currently being processed. Please check back later for detailed summaries of customer feedback and popular dishes."
             
             # Continue to next model
             continue
     
     # This should never be reached, but just in case
-    return "Restaurant reviews are currently being processed. Please check back later for detailed summaries."
+    return "⚡ Restaurant reviews are currently being processed. Please check back later for detailed summaries."
 
 def get_place_photos(photo_metadata):
     photo_urls = []
@@ -1009,7 +1023,8 @@ if st.button("Find Food") and craving:
             if "reviews" in result:
                 reviews = result["reviews"]
                 try:
-                    summary = summarize_reviews_and_dishes(reviews)
+                    with st.spinner("🤖 Generating AI summary from reviews..."):
+                        summary = summarize_reviews_and_dishes(reviews)
                     if summary:
                         st.markdown(f"""**What people say:**  
                     {summary}""")
@@ -1086,11 +1101,12 @@ if not st.session_state.user_premium:
     col1, col2, col3 = st.columns([1, 1, 1])
     with col2:
         # Check if user is logged in for premium upgrade
-        if not st.session_state.get('user_email'):
+        user_email = st.session_state.get('user_email', '')
+        if not user_email:
             st.warning("🔐 **Login required** to upgrade to Premium")
             st.info("👆 Please login using the sidebar to access premium features")
         else:
-            # Simple Stripe payment integration
+            # User is logged in, show upgrade button
             if st.button("🚀 Upgrade to Premium - $4.99/month", type="primary"):
                 with st.spinner("🔒 Creating secure checkout..."):
                     checkout_url = create_stripe_checkout_session()
@@ -1116,8 +1132,6 @@ if not st.session_state.user_premium:
                     """)
                 
                 st.info("💡 **Tip:** After payment, return to this page to access your premium features.")
-            else:
-                st.error("❌ Could not create checkout session. Please try again.")
         
         st.markdown("*🔒 Powered by Stripe | 💳 All major cards accepted | 🛡️ PCI compliant*")
     
