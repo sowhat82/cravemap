@@ -10,6 +10,10 @@ import hashlib
 from datetime import datetime, timedelta
 import time
 import uuid
+from legal import PRIVACY_POLICY, TERMS_OF_SERVICE
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Set page config
 st.set_page_config(
@@ -58,7 +62,7 @@ def show_login_option():
         st.sidebar.markdown("Login to access premium features & save your progress")
         
         with st.sidebar.form("login_form"):
-            email = st.text_input("Enter your email:", placeholder="your@email.com")
+            email = st.text_input("Enter your email:", placeholder="your@email.com", key="login_email", help="Enter your email to access premium features")
             remember_me = st.checkbox("Remember me on this device")
             submit = st.form_submit_button("Login")
             
@@ -147,6 +151,21 @@ def get_rate_limit_key():
         combined = f"{client_ip}_{user_agent}"
         return hashlib.md5(combined.encode()).hexdigest()[:12]
 
+def get_current_daily_usage():
+    """Get current daily usage without incrementing counter"""
+    rate_limit_key = get_rate_limit_key()
+    rate_limit_file = '.rate_limits.json'
+    
+    try:
+        with open(rate_limit_file, 'r') as f:
+            rate_data = json.load(f)
+    except:
+        return 0
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    today_key = f"{rate_limit_key}_{today}"
+    return rate_data.get(today_key, 0)
+
 def check_global_rate_limits():
     """Check global rate limits using a server-side file that users cannot manipulate"""
     rate_limit_key = get_rate_limit_key()
@@ -223,6 +242,66 @@ def save_user_data(user_id, data):
     data['last_updated'] = datetime.now().isoformat()
     with open(filename, 'w') as f:
         json.dump(data, f, indent=2)
+
+def send_support_email(support_data):
+    """Send support ticket directly to admin email via Gmail relay"""
+    try:
+        # Get email credentials from secrets
+        sender_email = st.secrets.get("SUPPORT_EMAIL", "cravemap.notifications@gmail.com")
+        sender_password = st.secrets.get("SUPPORT_EMAIL_PASSWORD", "")
+        admin_email = st.secrets.get("SUPPORT_RECIPIENT", "alvincheong@u.nus.edu")  # Where tickets go
+        
+        if not sender_password:
+            # If no email credentials, save locally only
+            print("No Gmail app password configured - saving locally only")
+            return False
+        
+        # Gmail SMTP configuration
+        smtp_server = "smtp.gmail.com"
+        smtp_port = 587
+        
+        # Create message
+        msg = MIMEMultipart()
+        msg['From'] = sender_email
+        msg['To'] = admin_email
+        msg['Subject'] = f"CraveMap Support: {support_data['support_type']} - {support_data['subject']}"
+        msg['Reply-To'] = support_data['user_email']  # User can reply directly
+        
+        # Email body
+        body = f"""
+New CraveMap Support Request
+
+Support Type: {support_data['support_type']}
+Subject: {support_data['subject']}
+User Email: {support_data['user_email']}
+User ID: {support_data['user_id']}
+Timestamp: {support_data['timestamp']}
+
+Message:
+{support_data['message']}
+
+---
+Reply directly to this email to respond to the user.
+This email was sent via Gmail relay from your CraveMap application.
+        """
+        
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Send email using Gmail
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        text = msg.as_string()
+        server.sendmail(sender_email, admin_email, text)
+        server.quit()
+        
+        print("Email sent successfully via Gmail relay")
+        return True
+        
+    except Exception as e:
+        # If email fails, still save locally
+        print(f"Gmail relay failed: {e}")
+        return False
 
 # Subscription management functions
 def check_subscription_status(user_data):
@@ -914,7 +993,17 @@ with st.sidebar:
         # Check if user is anonymous
         if not st.session_state.get('user_email'):
             st.info("🔒 Anonymous Mode")
-            st.markdown("**Daily limits:** 3 searches per day")
+            
+            # Get current daily usage for anonymous users (without incrementing)
+            current_searches = get_current_daily_usage()
+            remaining_daily = max(0, 3 - current_searches)
+            
+            if remaining_daily > 0:
+                st.markdown(f"🔍 **{remaining_daily}** searches remaining today")
+            else:
+                st.markdown("🔍 **0** searches remaining today")
+                st.markdown("⏰ **Resets at midnight**")
+            
             st.markdown("💡 **Login for monthly limits**")
         else:
             st.info("🆓 Free User")
@@ -942,11 +1031,32 @@ with st.sidebar:
             **🔐 Login recommended for proper free tier experience**
             """)
     
-    # Debug information (for development/testing)
-    if st.checkbox("🔧 Show URL Debug", help="Verify Stripe redirect URLs"):
+    # Support section
+    st.markdown("---")
+    st.markdown("### 💬 Support")
+    if st.session_state.user_premium:
+        st.markdown("""
+        **🌟 Premium Support:**
+        ✅ Priority technical support
+        ✅ Billing assistance  
+        ✅ Feature requests
+        
+        *Use the contact form below for support*
+        """)
+    else:
+        st.markdown("""
+        **Support available for Premium users**
+        
+        🔒 *Upgrade to access priority support*
+        """)
+    
+    # Debug information (for development/testing only - hidden in production)
+    app_url = get_app_url()
+    is_local = "localhost" in app_url or "127.0.0.1" in app_url
+    
+    if is_local and st.checkbox("🔧 Show URL Debug", help="Verify Stripe redirect URLs"):
         st.markdown("---")
         st.markdown("### 🔧 Environment Debug")
-        app_url = get_app_url()
         st.write(f"**Detected App URL:** {app_url}")
         st.write(f"**HOSTNAME:** {os.getenv('HOSTNAME', 'Not set')}")
         st.write(f"**STREAMLIT_CLOUD:** {os.getenv('STREAMLIT_CLOUD', 'Not set')}")
@@ -959,8 +1069,8 @@ if not st.session_state.user_premium:
     with st.container():
         st.info("🌟 **Upgrade to Premium** for unlimited searches, advanced filters (star rating, price range, distance), and detailed analytics!")
 
-craving = st.text_input("What are you craving today?")
-location = st.text_input("Where are you? (City or Area)", placeholder="e.g. Orchard Road")
+craving = st.text_input("What are you craving today?", key="search_craving", help="Type your food craving (e.g., pizza, sushi, burgers)")
+location = st.text_input("Where are you? (City or Area)", placeholder="e.g. Orchard Road", key="search_location", help="Enter your location or area")
 
 # Filter Options
 st.markdown("### Filter Options")
@@ -1160,7 +1270,7 @@ if not st.session_state.user_premium:
     
     # Hidden admin controls (secret access for you)
     with st.expander("🔐 Have a promo code?"):
-        promo_code = st.text_input("Enter promo code:", type="password")
+        promo_code = st.text_input("Enter promo code:", type="password", key="promo_code_input", help="Enter your promotional code")
         if st.button("Apply Code"):
             if promo_code == ADMIN_UPGRADE_CODE:
                 # Check if user is logged in for premium upgrade
@@ -1226,6 +1336,25 @@ if not st.session_state.user_premium:
                         st.info("No subscription management logs yet")
                 except FileNotFoundError:
                     st.info("No subscription management logs yet")
+            elif promo_code == "viewsupport":
+                # Admin function to view support requests
+                try:
+                    with open('.support_requests.json', 'r') as f:
+                        support_requests = json.load(f)
+                    if support_requests:
+                        st.markdown("### 📨 Support Requests")
+                        for i, request in enumerate(reversed(support_requests[-10:])):  # Show last 10
+                            with st.expander(f"{request['support_type']}: {request['subject']} - {request['timestamp'][:10]}"):
+                                st.write(f"**User:** {request['user_email']}")
+                                st.write(f"**Type:** {request['support_type']}")
+                                st.write(f"**Time:** {request['timestamp']}")
+                                st.write(f"**Subject:** {request['subject']}")
+                                st.write(f"**Message:** {request['message']}")
+                                st.write(f"**User ID:** {request['user_id']}")
+                    else:
+                        st.info("No support requests yet")
+                except FileNotFoundError:
+                    st.info("No support requests yet")
             elif promo_code == "forcecheckall":
                 # Force immediate subscription check (bypasses 6-hour limit)
                 try:
@@ -1271,8 +1400,115 @@ else:
                         st.write("**Status:** ❓ Unable to verify with Stripe")
                 else:
                     st.write("**Type:** Admin/Manual activation")
+                
+                # Premium Support Contact Form
+                st.markdown("---")
+                st.markdown("**💬 Premium Support:**")
+                st.markdown("*Submit a support request below*")
                     
         except (ValueError, TypeError):
             pass
+
+# Footer with legal links and contact
+st.markdown("---")
+
+if st.session_state.user_premium:
+    # Premium users get 2 columns for legal links + dedicated support section
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📋 Privacy Policy"):
+            with st.expander("Privacy Policy", expanded=True):
+                st.markdown(PRIVACY_POLICY)
+
+    with col2:
+        if st.button("📜 Terms of Service"):
+            with st.expander("Terms of Service", expanded=True):
+                st.markdown(TERMS_OF_SERVICE)
+    
+    # Premium Support Form (always visible for premium users)
+    st.markdown("### 💬 Premium Support")
+    st.markdown("*Get priority support for technical issues, billing questions, and feature requests*")
+    
+    with st.form("premium_support_form", clear_on_submit=True):
+        support_type = st.selectbox("Support Type", [
+            "Technical Issue",
+            "Billing Question", 
+            "Feature Request",
+            "Bug Report",
+            "Other"
+        ])
+        
+        subject = st.text_input("Subject", placeholder="Brief description of your issue")
+        message = st.text_area("Message", placeholder="Please provide details about your request...", height=100)
+        
+        if st.form_submit_button("📤 Send Support Request"):
+            if subject and message:
+                print(f"Processing support request from: {st.session_state.get('user_email', 'Unknown')}")
+                
+                # Create support data
+                support_data = {
+                    "timestamp": datetime.now().isoformat(),
+                    "user_email": st.session_state.get('user_email', 'Unknown'),
+                    "user_id": get_user_id(),
+                    "support_type": support_type,
+                    "subject": subject,
+                    "message": message
+                }
+                
+                print(f"Support data created: {support_data}")
+                
+                # Try to send email first
+                email_sent = send_support_email(support_data)
+                print(f"Email sent result: {email_sent}")
+                
+                # Save to local file as backup
+                try:
+                    support_file = ".support_requests.json"
+                    if os.path.exists(support_file):
+                        with open(support_file, 'r') as f:
+                            requests_data = json.load(f)
+                    else:
+                        requests_data = []
+                    
+                    requests_data.append(support_data)
+                    
+                    with open(support_file, 'w') as f:
+                        json.dump(requests_data, f, indent=2)
+                    
+                    print("Support request saved to local file")
+                    
+                    # Show success message
+                    if email_sent:
+                        st.success("✅ Support request sent successfully!")
+                        st.info("📧 Your request has been emailed and you'll receive a response soon.")
+                    else:
+                        st.success("✅ Support request submitted successfully!")
+                        st.info("📝 Your request has been logged and you'll receive a response soon.")
+                        st.warning("⚠️ Email delivery failed, but your request was saved.")
+                    
+                except Exception as e:
+                    print(f"Error saving support request: {e}")
+                    if email_sent:
+                        st.success("✅ Support request sent via email!")
+                        st.info("📧 You'll receive a response soon.")
+                    else:
+                        st.error("❌ Error submitting request. Please try again.")
+                        st.error(f"Error details: {str(e)}")
+            else:
+                st.error("Please fill in both subject and message fields.")
+else:
+    # Free users get 2 columns without contact support
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📋 Privacy Policy"):
+            with st.expander("Privacy Policy", expanded=True):
+                st.markdown(PRIVACY_POLICY)
+
+    with col2:
+        if st.button("📜 Terms of Service"):
+            with st.expander("Terms of Service", expanded=True):
+                st.markdown(TERMS_OF_SERVICE)
 
 st.markdown("Want to support this app? [Buy me a coffee ☕](https://www.buymeacoffee.com/alvincheong)")
