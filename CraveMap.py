@@ -476,28 +476,51 @@ except Exception as e:
 def get_app_url():
     """Detect the correct app URL for both local and deployed environments"""
     try:
+        # First check for manual override in secrets/environment
+        manual_override = st.secrets.get("APP_URL_OVERRIDE") or os.getenv("APP_URL_OVERRIDE")
+        if manual_override:
+            print(f"🔧 Using manual URL override: {manual_override}")
+            return manual_override
+        
+        # Debug: Check environment variables
+        hostname = os.getenv('HOSTNAME', '')
+        server_name = os.getenv('SERVER_NAME', '')
+        
         # Check if we're on Streamlit Cloud/deployed environment
+        # More comprehensive detection for Streamlit Cloud
         if (os.getenv('STREAMLIT_SHARING_MODE') or 
             os.getenv('STREAMLIT_CLOUD') or
-            'streamlit.app' in str(os.getenv('HOSTNAME', '')) or
-            'streamlit.app' in str(os.getenv('SERVER_NAME', ''))):
+            'streamlit.app' in hostname.lower() or
+            'streamlit.app' in server_name.lower() or
+            os.getenv('STREAMLIT_DEPLOYMENT_MODE') == 'cloud'):
             # For Streamlit Cloud, construct the URL
-            return "https://cravemap.streamlit.app"
+            detected_url = "https://cravemap.streamlit.app"
+            print(f"🌐 Detected Streamlit Cloud deployment: {detected_url}")
+            return detected_url
         
         # Check for other cloud platforms
         if os.getenv('HEROKU_APP_NAME'):
-            return f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com"
+            detected_url = f"https://{os.getenv('HEROKU_APP_NAME')}.herokuapp.com"
+            print(f"🌐 Detected Heroku deployment: {detected_url}")
+            return detected_url
         elif os.getenv('RAILWAY_STATIC_URL'):
-            return os.getenv('RAILWAY_STATIC_URL')
+            detected_url = os.getenv('RAILWAY_STATIC_URL')
+            print(f"🌐 Detected Railway deployment: {detected_url}")
+            return detected_url
         elif os.getenv('VERCEL_URL'):
-            return f"https://{os.getenv('VERCEL_URL')}"
+            detected_url = f"https://{os.getenv('VERCEL_URL')}"
+            print(f"🌐 Detected Vercel deployment: {detected_url}")
+            return detected_url
         
-        # Fallback to localhost for development
+        # If none of the above, assume local development
         port = st.get_option('server.port') or 8501
-        return f"http://localhost:{port}"
+        detected_url = f"http://localhost:{port}"
+        print(f"🖥️ Detected local development: {detected_url}")
+        return detected_url
         
-    except Exception:
+    except Exception as e:
         # Ultimate fallback
+        print(f"❌ URL detection failed: {e}, using localhost fallback")
         return "http://localhost:8501"
 
 def create_stripe_checkout_session():
