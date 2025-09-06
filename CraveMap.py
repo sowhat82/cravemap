@@ -13,7 +13,54 @@ import uuid
 from legal import PRIVACY_POLICY, TERMS_OF_SERVICE
 import smtplib
 from email.mime.text import MIMEText
+from database import CraveMapDB
+from backup_manager import BackupManager, simple_file_backup
 from email.mime.multipart import MIMEMultipart
+from database import db  # Import database instance
+from spam_protection import SpamProtection
+
+# Initialize backup manager and spam protection
+backup_manager = BackupManager()
+spam_protection = SpamProtection()
+
+def check_and_backup():
+    """Check if backup is needed and create one (silent operation for production)"""
+    try:
+        # Check if it's been more than 24 hours since last backup
+        backup_files = [f for f in os.listdir('.') if f.startswith('backup_') and f.endswith('.json')]
+        
+        if not backup_files:
+            # No backup exists, create one (silent)
+            backup_file = simple_file_backup()
+            # Only show message in development/debug mode
+            if os.getenv('CRAVEMAP_DEBUG', 'false').lower() == 'true':
+                if backup_file:
+                    st.success(f"✅ Initial backup created: {backup_file}")
+        else:
+            # Check if latest backup is older than 24 hours
+            latest_backup = max(backup_files, key=lambda x: os.path.getctime(x))
+            backup_age = time.time() - os.path.getctime(latest_backup)
+            
+            if backup_age > 86400:  # 24 hours in seconds
+                backup_file = simple_file_backup()
+                # Only show message in development/debug mode
+                if os.getenv('CRAVEMAP_DEBUG', 'false').lower() == 'true':
+                    if backup_file:
+                        st.info(f"🔄 Daily backup created: {backup_file}")
+    except Exception as e:
+        # Only show backup errors if they're critical
+        if "permission" in str(e).lower() or "disk" in str(e).lower():
+            st.warning(f"⚠️ Backup system needs attention - please check storage space")
+
+# Run backup check on app startup (only once per session)
+if 'backup_checked' not in st.session_state:
+    check_and_backup()
+    st.session_state.backup_checked = True
+
+# Pricing Configuration - Easy to change for future updates
+PREMIUM_PRICE_SGD = 9.99  # Monthly subscription price in SGD
+PREMIUM_PRICE_CENTS = int(PREMIUM_PRICE_SGD * 100)  # Price in cents for Stripe
+PREMIUM_PRICE_DISPLAY = f"${PREMIUM_PRICE_SGD:.2f}"  # Formatted price for display
 
 # Set page config
 st.set_page_config(
@@ -73,7 +120,8 @@ def show_login_option():
                     # Refresh session with user's actual data
                     user_id = hashlib.md5(email.lower().strip().encode()).hexdigest()[:8]
                     user_data = load_user_data(user_id)
-                    st.session_state.user_premium = user_data.get('is_premium', False)
+                    st.session_state.user_premium = bool(user_data.get('is_premium', False))
+                    st.session_state.payment_completed = bool(user_data.get('payment_completed', False))
                     st.session_state.monthly_searches = user_data['monthly_searches']
                     st.session_state.last_search_reset = user_data['last_search_reset']
                     
@@ -103,7 +151,8 @@ def show_login_option():
                         # Refresh session with remembered user's data
                         user_id = hashlib.md5(remembered_email.encode()).hexdigest()[:8]
                         user_data = load_user_data(user_id)
-                        st.session_state.user_premium = user_data.get('is_premium', False)
+                        st.session_state.user_premium = bool(user_data.get('is_premium', False))
+                        st.session_state.payment_completed = bool(user_data.get('payment_completed', False))
                         st.session_state.monthly_searches = user_data['monthly_searches']
                         st.session_state.last_search_reset = user_data['last_search_reset']
                         
@@ -216,32 +265,23 @@ def get_user_id():
 
 # Function to load usage data for specific user
 def load_user_data(user_id):
-    filename = f'.user_data_{user_id}.json'
-    try:
-        with open(filename, 'r') as f:
-            data = json.load(f)
-            # Ensure we have the user's email stored
-            if 'email' not in data:
-                data['email'] = st.session_state.get('user_email', '')
-            return data
-    except FileNotFoundError:
-        return {
-            'monthly_searches': 0,
-            'last_search_reset': datetime.now().isoformat(),
-            'is_premium': False,
-            'premium_since': None,
-            'user_id': user_id,
-            'email': st.session_state.get('user_email', '')
-        }
+    """Load user data from database"""
+    return db.get_user(user_id)
 
 # Function to save usage data for specific user
 def save_user_data(user_id, data):
-    filename = f'.user_data_{user_id}.json'
-    data['user_id'] = user_id
-    data['email'] = st.session_state.get('user_email', '')
-    data['last_updated'] = datetime.now().isoformat()
-    with open(filename, 'w') as f:
-        json.dump(data, f, indent=2)
+    """Save user data to database"""
+    db.save_user(
+        user_id=user_id,
+        email=data.get('email', st.session_state.get('user_email', '')),
+        is_premium=data.get('is_premium', False),
+        payment_completed=data.get('payment_completed', False),
+        stripe_customer_id=data.get('stripe_customer_id'),
+        monthly_searches=data.get('monthly_searches', 0),
+        last_search_reset=data.get('last_search_reset', datetime.now().isoformat()),
+        premium_since=data.get('premium_since'),
+        promo_activation=data.get('promo_activation')
+    )
 
 def send_support_email(support_data):
     """Send support ticket directly to admin email via Gmail relay"""
@@ -308,6 +348,11 @@ def check_subscription_status(user_data):
     """Check if subscription is still valid and active"""
     if not user_data.get('is_premium', False):
         return False  # Not premium anyway
+    
+    # Check if this is a promo code activation (admin override)
+    promo_activation = user_data.get('promo_activation', '')
+    if 'Admin code:' in promo_activation:
+        return True  # Promo code activations don't expire
     
     # Check if subscription has expired
     premium_since = user_data.get('premium_since')
@@ -627,7 +672,7 @@ def create_stripe_checkout_session():
                         'name': 'CraveMap Premium',
                         'description': 'Unlimited searches, advanced filters, and detailed analytics',
                     },
-                    'unit_amount': 499,  # $4.99 in cents
+                    'unit_amount': PREMIUM_PRICE_CENTS,  # Price in cents (SGD)
                     'recurring': {
                         'interval': 'month',
                     },
@@ -734,7 +779,8 @@ def check_search_limits():
         # Sync session state
         st.session_state.monthly_searches = user_data['monthly_searches']
         st.session_state.last_search_reset = user_data['last_search_reset']
-        st.session_state.user_premium = user_data.get('is_premium', False)
+        st.session_state.user_premium = bool(user_data.get('is_premium', False))
+        st.session_state.payment_completed = bool(user_data.get('payment_completed', False))
         
         # Premium users have unlimited searches
         if st.session_state.user_premium:
@@ -745,12 +791,11 @@ def check_search_limits():
             st.warning("🔒 You've reached your 3 free searches for this month!")
             return False
         
-        # Increment search count
-        user_data['monthly_searches'] += 1
-        save_user_data(user_id, user_data)
-        st.session_state.monthly_searches = user_data['monthly_searches']
+        # Increment search count using database method
+        new_count = db.update_search_count(user_id, 1)
+        st.session_state.monthly_searches = new_count
         
-        remaining = 3 - user_data['monthly_searches']
+        remaining = 3 - new_count
         if remaining > 0:
             st.info(f"ℹ️ You have {remaining} free {'search' if remaining == 1 else 'searches'} remaining this month.")
         
@@ -1050,11 +1095,13 @@ with st.sidebar:
         🔒 *Upgrade to access priority support*
         """)
     
-    # Debug information (for development/testing only - hidden in production)
+    # Debug information (development/testing only - completely hidden in production)
     app_url = get_app_url()
     is_local = "localhost" in app_url or "127.0.0.1" in app_url
+    is_production = "streamlit.app" in app_url or os.getenv('STREAMLIT_CLOUD') == 'true'
     
-    if is_local and st.checkbox("🔧 Show URL Debug", help="Verify Stripe redirect URLs"):
+    # Only show debug in local development, never in production
+    if is_local and not is_production and st.checkbox("🔧 Show URL Debug", help="Verify Stripe redirect URLs"):
         st.markdown("---")
         st.markdown("### 🔧 Environment Debug")
         st.write(f"**Detected App URL:** {app_url}")
@@ -1106,7 +1153,51 @@ st.session_state.premium_filters = {
 }
 
 if st.button("Find Food") and craving:
-    # Check search limits for free users
+    # Get client information for spam protection
+    try:
+        import streamlit.web.server.server as server
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        
+        # Get IP and user agent (streamlit doesn't expose these directly)
+        # Use session info as fallback
+        ctx = get_script_run_ctx()
+        session_id = ctx.session_id if ctx else "unknown"
+        user_agent = st.get_option("browser.gatherUsageStats") or "streamlit-app"
+        
+        # Generate fingerprint for this user
+        fingerprint = spam_protection.generate_fingerprint(
+            session_id, str(user_agent), st.session_state.user_email or "anonymous"
+        )
+        
+        # Check if user is flagged
+        is_flagged, flag_reason = spam_protection.is_flagged(fingerprint)
+        if is_flagged:
+            st.error(f"🚫 Access restricted: {flag_reason}. Please contact support if you believe this is an error.")
+            st.stop()
+        
+        # Check rate limits
+        rate_ok, rate_msg = spam_protection.check_rate_limits(fingerprint, session_id, str(user_agent))
+        if not rate_ok:
+            st.error(f"⏰ {rate_msg}")
+            st.stop()
+        
+        # Check for spam patterns
+        spam_ok, spam_msg = spam_protection.check_spam_patterns(craving, fingerprint, session_id, str(user_agent))
+        if not spam_ok:
+            st.error(f"🚫 {spam_msg}")
+            st.stop()
+        
+        # Check for bot behavior
+        bot_ok, bot_msg = spam_protection.detect_bot_behavior(fingerprint, session_id, str(user_agent))
+        if not bot_ok:
+            st.error(f"🤖 {bot_msg}")
+            st.stop()
+            
+    except Exception as e:
+        # If spam protection fails, log it but don't block the user
+        st.warning("⚠️ Security check encountered an issue. Proceeding with search...")
+    
+    # Check search limits for free users  
     if not check_search_limits():
         st.stop()
     
@@ -1224,7 +1315,7 @@ if not st.session_state.user_premium:
     
     with col2:
         st.markdown("""
-        ### Premium Plan - $4.99/month
+        ### Premium Plan - {PREMIUM_PRICE_DISPLAY}/month
         - ✅ Everything in Free
         - ✅ **Unlimited searches**
         - ✅ **Advanced filters** (star rating, price range, distance control)
@@ -1240,7 +1331,7 @@ if not st.session_state.user_premium:
             st.info("👆 Please login using the sidebar to access premium features")
         else:
             # User is logged in, show upgrade button
-            if st.button("🚀 Upgrade to Premium - $4.99/month", type="primary"):
+            if st.button(f"🚀 Upgrade to Premium - {PREMIUM_PRICE_DISPLAY}/month", type="primary"):
                 with st.spinner("🔒 Creating secure checkout..."):
                     checkout_url = create_stripe_checkout_session()
                     
@@ -1249,7 +1340,7 @@ if not st.session_state.user_premium:
                     st.markdown(f"""
                     ### 🔒 Secure Payment
                     
-                    🔗 **[CLICK HERE TO PAY WITH STRIPE - $4.99/month]({checkout_url})**
+                    🔗 **[CLICK HERE TO PAY WITH STRIPE - {PREMIUM_PRICE_DISPLAY}/month]({checkout_url})**
                     
                     You'll be redirected to Stripe's secure payment page to complete your purchase.
                     """)
@@ -1270,7 +1361,7 @@ if not st.session_state.user_premium:
     
     # Hidden admin controls (secret access for you)
     with st.expander("🔐 Have a promo code?"):
-        promo_code = st.text_input("Enter promo code:", type="password", key="promo_code_input", help="Enter your promotional code")
+        promo_code = st.text_input("Enter promo code:", key="promo_code_input", help="Enter your promotional code")
         if st.button("Apply Code"):
             if promo_code == ADMIN_UPGRADE_CODE:
                 # Check if user is logged in for premium upgrade
@@ -1285,12 +1376,18 @@ if not st.session_state.user_premium:
                 st.session_state.user_premium = True
                 st.session_state.payment_completed = True
                 
-                # Update usage data file
-                usage_data = load_user_data(user_id)
-                usage_data['is_premium'] = True
-                usage_data['premium_since'] = datetime.now().isoformat()
-                usage_data['promo_activation'] = f"Admin code: {promo_code}"
-                save_user_data(user_id, usage_data)
+                # Update usage data in database
+                user_data = load_user_data(user_id)
+                save_user_data(user_id, {
+                    'email': user_data.get('email', st.session_state.get('user_email', '')),
+                    'is_premium': True,
+                    'payment_completed': True,
+                    'monthly_searches': user_data.get('monthly_searches', 0),
+                    'last_search_reset': user_data.get('last_search_reset', datetime.now().isoformat()),
+                    'premium_since': datetime.now().isoformat(),
+                    'promo_activation': f"Admin code: {promo_code}",
+                    'user_id': user_id
+                })
                 
                 st.success("🎉 Admin code applied! Premium activated!")
                 st.rerun()
@@ -1337,24 +1434,80 @@ if not st.session_state.user_premium:
                 except FileNotFoundError:
                     st.info("No subscription management logs yet")
             elif promo_code == "viewsupport":
-                # Admin function to view support requests
-                try:
-                    with open('.support_requests.json', 'r') as f:
-                        support_requests = json.load(f)
-                    if support_requests:
-                        st.markdown("### 📨 Support Requests")
-                        for i, request in enumerate(reversed(support_requests[-10:])):  # Show last 10
-                            with st.expander(f"{request['support_type']}: {request['subject']} - {request['timestamp'][:10]}"):
-                                st.write(f"**User:** {request['user_email']}")
-                                st.write(f"**Type:** {request['support_type']}")
-                                st.write(f"**Time:** {request['timestamp']}")
-                                st.write(f"**Subject:** {request['subject']}")
-                                st.write(f"**Message:** {request['message']}")
-                                st.write(f"**User ID:** {request['user_id']}")
-                    else:
-                        st.info("No support requests yet")
-                except FileNotFoundError:
+                # Admin function to view support requests from database
+                support_requests = db.get_support_tickets(limit=10)
+                if support_requests:
+                    st.markdown("### 📨 Support Requests")
+                    for request in support_requests:
+                        with st.expander(f"{request['support_type']}: {request['subject']} - {request['created_at'][:10]}"):
+                            st.write(f"**User:** {request['user_email']}")
+                            st.write(f"**Type:** {request['support_type']}")
+                            st.write(f"**Time:** {request['created_at']}")
+                            st.write(f"**Subject:** {request['subject']}")
+                            st.write(f"**Message:** {request['message']}")
+                            st.write(f"**User ID:** {request['user_id']}")
+                            st.write(f"**Status:** {request['status']}")
+                else:
                     st.info("No support requests yet")
+            elif promo_code == "dbstats":
+                # Admin function to view database statistics
+                stats = db.get_stats()
+                st.markdown("### 📊 Database Statistics")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Total Users", stats['total_users'])
+                    st.metric("Premium Users", stats['premium_users'])
+                with col2:
+                    st.metric("Paid Users", stats['paid_users'])
+                    st.metric("Support Tickets", stats['total_tickets'])
+                
+                # Show conversion rate
+                if stats['total_users'] > 0:
+                    conversion_rate = (stats['premium_users'] / stats['total_users']) * 100
+                    st.metric("Conversion Rate", f"{conversion_rate:.1f}%")
+                
+                # Spam Protection Statistics
+                st.markdown("### 🛡️ Spam Protection Stats")
+                spam_stats = spam_protection.get_admin_stats()
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Requests (24h)", spam_stats['total_requests_24h'])
+                with col2:
+                    st.metric("Flagged Users", spam_stats['flagged_users'])
+                with col3:
+                    st.metric("Suspicious Activities", spam_stats['suspicious_activities_24h'])
+                with col4:
+                    st.metric("High Severity", spam_stats['high_severity_24h'])
+                
+                # Activity breakdown
+                if spam_stats['activity_breakdown']:
+                    st.markdown("#### Recent Suspicious Activities")
+                    for activity in spam_stats['activity_breakdown']:
+                        st.write(f"• **{activity['activity_type']}**: {activity['count']} times")
+                
+                # Manual backup option
+                if st.button("🔄 Create Manual Backup"):
+                    backup_file = simple_file_backup()
+                    if backup_file:
+                        st.success(f"✅ Backup created: {backup_file}")
+                    else:
+                        st.error("❌ Backup failed")
+            elif promo_code == "backup":
+                # Quick backup command
+                st.markdown("### 💾 Database Backup")
+                backup_file = simple_file_backup()
+                if backup_file:
+                    st.success(f"✅ Backup created: {backup_file}")
+                    # Show backup files
+                    backup_files = [f for f in os.listdir('.') if f.startswith('backup_') and f.endswith('.json')]
+                    if backup_files:
+                        st.markdown("**Available Backups:**")
+                        for backup in sorted(backup_files, reverse=True)[:5]:  # Show last 5 backups
+                            backup_time = backup.replace('backup_', '').replace('.json', '')
+                            st.write(f"- {backup} ({backup_time})")
+                else:
+                    st.error("❌ Backup failed")
             elif promo_code == "forcecheckall":
                 # Force immediate subscription check (bypasses 6-hour limit)
                 try:
@@ -1369,7 +1522,7 @@ if not st.session_state.user_premium:
 else:
     st.success("🎉 You're a Premium user! Enjoy unlimited features!")
     if st.session_state.payment_completed:
-        st.info("💳 Subscription active - $4.99/month")
+        st.info(f"💳 Subscription active - {PREMIUM_PRICE_DISPLAY}/month")
     
     # Show subscription details for premium users
     user_data = load_user_data(get_user_id())
@@ -1462,8 +1615,20 @@ if st.session_state.user_premium:
                 email_sent = send_support_email(support_data)
                 print(f"Email sent result: {email_sent}")
                 
-                # Save to local file as backup
+                # Save to database (primary) and file (backup)
                 try:
+                    # Save to database
+                    db.save_support_ticket(
+                        user_id=support_data['user_id'],
+                        user_email=support_data['user_email'],
+                        support_type=support_data['support_type'],
+                        subject=support_data['subject'],
+                        message=support_data['message'],
+                        created_at=support_data['timestamp']
+                    )
+                    print("Support request saved to database")
+                    
+                    # Also save to file as backup
                     support_file = ".support_requests.json"
                     if os.path.exists(support_file):
                         with open(support_file, 'r') as f:
@@ -1476,7 +1641,7 @@ if st.session_state.user_premium:
                     with open(support_file, 'w') as f:
                         json.dump(requests_data, f, indent=2)
                     
-                    print("Support request saved to local file")
+                    print("Support request also saved to local file as backup")
                     
                     # Show success message
                     if email_sent:
