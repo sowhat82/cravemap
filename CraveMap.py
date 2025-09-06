@@ -84,6 +84,79 @@ ADMIN_UPGRADE_CODE = "cravemap2024premium"  # Use this to activate premium
 ADMIN_DOWNGRADE_CODE = "resetfree"      # Use this to go back to free tier
 ADMIN_RESET_COUNTER = "resetcounter"    # Use this to reset monthly searches
 
+# Trial system constants
+TRIAL_CODE = "trial7days"              # 7-day trial code
+TRIAL_DURATION_DAYS = 7                # Trial duration
+TRIAL_DAILY_LIMIT = 20                 # Generous daily limit for trial users
+
+def has_premium_access():
+    """Check if user has premium access (either paid premium OR active trial)"""
+    # Check regular premium status
+    if st.session_state.get('user_premium', False):
+        return True
+    
+    # Check if user has active trial
+    if not st.session_state.get('user_email'):
+        return False
+    
+    user_id = get_user_id()
+    user_data = load_user_data(user_id)
+    trial_status = check_trial_status(user_data)
+    
+    return trial_status['is_trial_active']
+
+def check_trial_status(user_data):
+    """Check if user is on active trial and return trial status"""
+    if not user_data.get('trial_active'):
+        return {'is_trial_active': False, 'days_remaining': 0, 'daily_searches': 0}
+    
+    trial_start = user_data.get('trial_start_date')
+    if not trial_start:
+        return {'is_trial_active': False, 'days_remaining': 0, 'daily_searches': 0}
+    
+    try:
+        # Parse trial start date
+        trial_start_date = datetime.fromisoformat(trial_start)
+        now = datetime.now()
+        days_elapsed = (now - trial_start_date).days
+        
+        # Check if trial is still active (expired)
+        if days_elapsed >= TRIAL_DURATION_DAYS:
+            return {'is_trial_active': False, 'days_remaining': 0, 'daily_searches': 0}
+        
+        # Count today's searches
+        today_str = now.strftime('%Y-%m-%d')
+        trial_searches = user_data.get('trial_daily_searches', {})
+        daily_searches = trial_searches.get(today_str, 0)
+        
+        return {
+            'is_trial_active': True,
+            'days_remaining': TRIAL_DURATION_DAYS - days_elapsed,
+            'daily_searches': daily_searches
+        }
+    except:
+        return {'is_trial_active': False, 'days_remaining': 0, 'daily_searches': 0}
+
+def increment_trial_search(user_id, user_data):
+    """Increment daily trial search count"""
+    now = datetime.now()
+    today_str = now.strftime('%Y-%m-%d')
+    
+    # Get current trial searches
+    trial_searches = user_data.get('trial_daily_searches', {})
+    trial_searches[today_str] = trial_searches.get(today_str, 0) + 1
+    
+    # Clean up old dates (keep only last 30 days)
+    cutoff_date = now - timedelta(days=30)
+    cutoff_str = cutoff_date.strftime('%Y-%m-%d')
+    trial_searches = {k: v for k, v in trial_searches.items() if k >= cutoff_str}
+    
+    # Update user data
+    user_data['trial_daily_searches'] = trial_searches
+    save_user_data(user_id, user_data)
+    
+    return trial_searches[today_str]
+
 # User authentication system
 def get_user_email():
     """Get user email through optional login"""
@@ -236,8 +309,8 @@ def check_global_rate_limits():
     today_key = f"{rate_limit_key}_{today}"
     today_searches = rate_data.get(today_key, 0)
     
-    # Allow up to 3 searches per day per client
-    if today_searches >= 3:
+    # Allow up to 2 searches per day per client (reduced from 3 for conversion)
+    if today_searches >= 2:
         return False, today_searches
     
     # Increment counter
@@ -786,16 +859,32 @@ def check_search_limits():
         if st.session_state.user_premium:
             return True
         
-        # Check if user has reached limit
-        if user_data['monthly_searches'] >= 3:
-            st.warning("🔒 You've reached your 3 free searches for this month!")
+        # Check if user is on trial
+        trial_status = check_trial_status(user_data)
+        if trial_status['is_trial_active']:
+            # Check daily limit for trial users
+            daily_searches = trial_status['daily_searches']
+            if daily_searches >= TRIAL_DAILY_LIMIT:
+                st.warning(f"🔒 You've reached your daily trial limit of {TRIAL_DAILY_LIMIT} searches! Try again tomorrow.")
+                return False
+            else:
+                # Increment trial search count
+                new_daily_count = increment_trial_search(user_id, user_data)
+                days_left = trial_status['days_remaining']
+                remaining_today = TRIAL_DAILY_LIMIT - new_daily_count
+                st.info(f"🎯 Trial Mode: {new_daily_count}/{TRIAL_DAILY_LIMIT} searches today | {days_left} days remaining")
+                return True
+        
+        # Check if user has reached monthly limit
+        if user_data['monthly_searches'] >= 5:
+            st.warning("🔒 You've reached your 5 free searches for this month!")
             return False
         
         # Increment search count using database method
         new_count = db.update_search_count(user_id, 1)
         st.session_state.monthly_searches = new_count
         
-        remaining = 3 - new_count
+        remaining = 5 - new_count
         if remaining > 0:
             st.info(f"ℹ️ You have {remaining} free {'search' if remaining == 1 else 'searches'} remaining this month.")
         
@@ -1003,7 +1092,13 @@ def search_food_places(location, keywords, min_rating=0, premium_filters=None):
 # --- Streamlit UI ---
 
 # Show premium status in header
-premium_badge = "🌟 PREMIUM" if st.session_state.user_premium else "🆓 FREE"
+if has_premium_access():
+    if st.session_state.user_premium:
+        premium_badge = "🌟 PREMIUM"
+    else:
+        premium_badge = "🎯 TRIAL"
+else:
+    premium_badge = "🆓 FREE"
 user_email = st.session_state.get('user_email', '')
 
 if user_email:
@@ -1031,9 +1126,19 @@ st.markdown("Type in what you're craving and get real nearby suggestions!")
 # Sidebar with user status
 with st.sidebar:
     st.markdown("### 👤 User Status")
-    if st.session_state.user_premium:
-        st.success("🌟 Premium User")
-        st.markdown("✅ All features unlocked!")
+    if has_premium_access():
+        if st.session_state.user_premium:
+            st.success("🌟 Premium User")
+            st.markdown("✅ All features unlocked!")
+        else:
+            # Must be trial user
+            user_id = get_user_id()
+            user_data = load_user_data(user_id)
+            trial_status = check_trial_status(user_data)
+            days_left = trial_status['days_remaining']
+            st.success("🎯 Trial User")
+            st.markdown(f"✅ Premium features active!")
+            st.markdown(f"⏰ {days_left} days remaining")
     else:
         # Check if user is anonymous
         if not st.session_state.get('user_email'):
@@ -1041,7 +1146,7 @@ with st.sidebar:
             
             # Get current daily usage for anonymous users (without incrementing)
             current_searches = get_current_daily_usage()
-            remaining_daily = max(0, 3 - current_searches)
+            remaining_daily = max(0, 2 - current_searches)
             
             if remaining_daily > 0:
                 st.markdown(f"🔍 **{remaining_daily}** searches remaining today")
@@ -1049,13 +1154,13 @@ with st.sidebar:
                 st.markdown("🔍 **0** searches remaining today")
                 st.markdown("⏰ **Resets at midnight**")
             
-            st.markdown("💡 **Login for monthly limits**")
+            st.markdown("💡 **Login for 5 monthly searches!**")
         else:
             st.info("🆓 Free User")
-            remaining = 3 - st.session_state.monthly_searches
+            remaining = 5 - st.session_state.monthly_searches
             st.markdown(f"🔍 **{remaining}** searches remaining this month")
     
-    if not st.session_state.user_premium:
+    if not has_premium_access():
         st.markdown("---")
         st.markdown("### 🚀 Upgrade Benefits")
         st.markdown("""
@@ -1111,8 +1216,8 @@ with st.sidebar:
         if st.session_state.get('stripe_mode'):
             st.write(f"**Stripe Mode:** {st.session_state['stripe_mode']}")
 
-# Premium upgrade banner for free users
-if not st.session_state.user_premium:
+# Premium upgrade banner for free users (but not trial users)
+if not has_premium_access():
     with st.container():
         st.info("🌟 **Upgrade to Premium** for unlimited searches, advanced filters (star rating, price range, distance), and detailed analytics!")
 
@@ -1127,7 +1232,7 @@ premium_price_filter = None
 premium_distance_filter = None
 min_rating = 0  # Default for free users - no rating filter
 
-if st.session_state.user_premium:
+if has_premium_access():
     st.markdown("#### 🌟 Premium Filters")
     
     min_rating = st.selectbox(
@@ -1210,7 +1315,7 @@ if st.button("Find Food") and craving:
 
     with st.spinner("Searching for places..."):
         # Pass premium filters to search function
-        premium_filters = st.session_state.get('premium_filters', {}) if st.session_state.user_premium else None
+        premium_filters = st.session_state.get('premium_filters', {}) if has_premium_access() else None
         places = search_food_places(location, keywords, min_rating, premium_filters)
 
     if places:
@@ -1258,7 +1363,7 @@ if st.button("Find Food") and craving:
                     This restaurant has {len(reviews)} customer reviews. Check individual reviews below for detailed feedback about food quality, service, and atmosphere.""")
                 
                 # Premium users get detailed review analytics
-                if st.session_state.user_premium and reviews:
+                if has_premium_access() and reviews:
                     with st.expander("📊 Premium Review Analytics"):
                         total_reviews = len(reviews)
                         avg_rating = sum(r.get('rating', 0) for r in reviews) / len(reviews) if reviews else 0
@@ -1407,6 +1512,53 @@ if not st.session_state.user_premium:
                 save_user_data(user_id, usage_data)
                 
                 st.info("Reset to free tier")
+                st.rerun()
+            elif promo_code == TRIAL_CODE:
+                # Check if user is logged in for trial activation
+                if not st.session_state.get('user_email'):
+                    st.warning("🔐 Please login first to activate trial")
+                    st.stop()
+                
+                # Get the correct user ID after login check
+                user_id = get_user_id()
+                
+                # Check if user already has an active trial or is premium
+                usage_data = load_user_data(user_id)
+                if usage_data.get('is_premium'):
+                    st.info("🎉 You already have premium access!")
+                    st.stop()
+                
+                # Check if user already used a trial
+                if usage_data.get('trial_used'):
+                    st.warning("⏰ You have already used your free trial")
+                    st.stop()
+                
+                # Activate 7-day trial
+                trial_start = datetime.now()
+                trial_end = trial_start + timedelta(days=TRIAL_DURATION_DAYS)
+                
+                # Update session state
+                st.session_state.trial_active = True
+                st.session_state.trial_start_date = trial_start.isoformat()
+                st.session_state.trial_end_date = trial_end.isoformat()
+                st.session_state.trial_daily_searches = 0
+                
+                # Update usage data file
+                save_user_data(user_id, {
+                    'trial_active': True,
+                    'trial_start_date': trial_start.isoformat(),
+                    'trial_end_date': trial_end.isoformat(),
+                    'trial_daily_searches': 0,
+                    'trial_used': True,
+                    'monthly_searches': usage_data.get('monthly_searches', 0),
+                    'last_search_reset': usage_data.get('last_search_reset', datetime.now().isoformat()),
+                    'is_premium': usage_data.get('is_premium', False),
+                    'premium_since': usage_data.get('premium_since'),
+                    'trial_activation': f"Trial activated: {trial_start.isoformat()}",
+                    'user_id': user_id
+                })
+                
+                st.success(f"🎉 7-day trial activated! You now have {TRIAL_DAILY_LIMIT} searches per day until {trial_end.strftime('%B %d, %Y')}")
                 st.rerun()
             elif promo_code == ADMIN_RESET_COUNTER:
                 # Get current user ID
