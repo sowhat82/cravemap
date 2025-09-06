@@ -1028,17 +1028,20 @@ def search_food_places(location, keywords, min_rating=0, premium_filters=None):
             "key": GOOGLE_API_KEY
         }
 
-        # First get the location coordinates
-        geocode_url = "https://maps.googleapis.com/maps/api/geocode/json"
+        # First get the location coordinates using Places API instead of Geocoding API
+        # This avoids the need for separate Geocoding API authorization
+        geocode_url = "https://maps.googleapis.com/maps/api/place/findplacefromtext/json"
         geocode_params = {
-            "address": location,
+            "input": location,
+            "inputtype": "textquery",
+            "fields": "geometry",
             "key": GOOGLE_API_KEY
         }
         geocode_res = requests.get(geocode_url, params=geocode_params)
         geocode_data = geocode_res.json()
         
-        if geocode_data.get("results"):
-            location_coords = geocode_data["results"][0]["geometry"]["location"]
+        if geocode_data.get("candidates") and len(geocode_data["candidates"]) > 0:
+            location_coords = geocode_data["candidates"][0]["geometry"]["location"]
             origin_coords = (location_coords['lat'], location_coords['lng'])
             params["location"] = f"{location_coords['lat']},{location_coords['lng']}"
             
@@ -1050,6 +1053,9 @@ def search_food_places(location, keywords, min_rating=0, premium_filters=None):
             else:
                 # Use rankby=distance for general proximity when no specific distance filter
                 params["rankby"] = "distance"
+        else:
+            # Failed to find location, continue without distance filtering
+            pass
             
         res = requests.get(url, params=params)
         data = res.json()
@@ -1074,9 +1080,6 @@ def search_food_places(location, keywords, min_rating=0, premium_filters=None):
                     if distance > max_distance:
                         # Skip places that are too far
                         continue
-                    # Show debugging info in development mode
-                    if not is_production and st.session_state.get('show_debug'):
-                        st.write(f"🎯 Distance filter: {distance:.2f}km <= {max_distance}km ✅")
                 
                 # Apply rating filter
                 if rating is not None and rating < min_rating:
@@ -1340,16 +1343,15 @@ if st.button("Find Food") and craving:
             # Basic info for all users
             rating_display = f"⭐ {place.get('rating', 'N/A')}"
             
-            # Premium users get detailed analytics
-            if st.session_state.user_premium:
+            # Premium users get detailed analytics including distance
+            if has_premium_access():
                 price_level = place.get('price_level', 0)
                 price_display = "$" * max(1, price_level) if price_level > 0 else "$ (Budget-friendly)"
-                distance_info = f"- **Distance:** {place.get('distance', 'N/A')}" if place.get('distance') else ""
                 st.markdown(f"""
                 **Premium Analytics:**
                 - **Rating:** {rating_display} 
                 - **Price Level:** {price_display}
-                {distance_info}
+                - **Distance:** {place.get('distance', 'N/A')}
                 - **Address:** {place['address']}
                 - **Popularity Rank:** #{idx + 1} in search results
                 """)
