@@ -76,7 +76,7 @@ try:
     with open("models_config.json") as f:
         models = json.load(f).get("models", ["mistralai/mistral-7b-instruct:free"])
 except:
-    # Fallback models if config file is missing
+    # Fallback to only working free models if config file is missing
     models = ["mistralai/mistral-7b-instruct:free", "meta-llama/llama-3.3-70b-instruct:free"]
 
 # Admin secret codes (only you know these)
@@ -1041,7 +1041,15 @@ def search_food_places(location, keywords, min_rating=0, premium_filters=None):
             location_coords = geocode_data["results"][0]["geometry"]["location"]
             origin_coords = (location_coords['lat'], location_coords['lng'])
             params["location"] = f"{location_coords['lat']},{location_coords['lng']}"
-            params["rankby"] = "distance"
+            
+            # Handle distance filtering properly for Google Places API
+            if premium_filters and premium_filters.get("distance"):
+                # Use radius instead of rankby when distance filter is active
+                radius_meters = int(premium_filters["distance"] * 1000)  # Convert km to meters
+                params["radius"] = min(radius_meters, 50000)  # Google Places max radius is 50km
+            else:
+                # Use rankby=distance for general proximity when no specific distance filter
+                params["rankby"] = "distance"
             
         res = requests.get(url, params=params)
         data = res.json()
@@ -1061,9 +1069,14 @@ def search_food_places(location, keywords, min_rating=0, premium_filters=None):
                     )
                 
                 # Apply distance filter for premium users
-                if premium_filters and premium_filters.get("distance") and distance:
-                    if distance > premium_filters["distance"]:
+                if premium_filters and premium_filters.get("distance") and distance is not None:
+                    max_distance = premium_filters["distance"]
+                    if distance > max_distance:
+                        # Skip places that are too far
                         continue
+                    # Show debugging info in development mode
+                    if not is_production and st.session_state.get('show_debug'):
+                        st.write(f"🎯 Distance filter: {distance:.2f}km <= {max_distance}km ✅")
                 
                 # Apply rating filter
                 if rating is not None and rating < min_rating:
@@ -1419,7 +1432,7 @@ if not st.session_state.user_premium:
         """)
     
     with col2:
-        st.markdown("""
+        st.markdown(f"""
         ### Premium Plan - {PREMIUM_PRICE_DISPLAY}/month
         - ✅ Everything in Free
         - ✅ **Unlimited searches**
