@@ -1602,35 +1602,54 @@ if not st.session_state.user_premium:
                     st.info("No subscription management logs yet")
             elif promo_code == "finduser":
                 # Admin function to find and debug user data
-                search_email = st.text_input("Enter email to search:", key="search_email")
-                if search_email and st.button("Search User"):
-                    import glob
-                    found = False
-                    for filename in glob.glob('.user_data_*.json'):
-                        if 'anon' not in filename:
-                            try:
-                                with open(filename, 'r') as f:
-                                    data = json.load(f)
-                                if search_email.lower() in data.get('email', '').lower():
-                                    st.success(f"Found user in {filename}")
-                                    st.json(data)
-                                    
-                                    # Show validation status
-                                    st.write("**Validation Results:**")
-                                    st.write(f"- Is Premium (stored): {data.get('is_premium', False)}")
-                                    st.write(f"- Has promo activation: {bool(data.get('promo_activation'))}")
-                                    st.write(f"- Promo activation: {data.get('promo_activation', 'None')}")
-                                    st.write(f"- Premium since: {data.get('premium_since', 'None')}")
-                                    
-                                    # Test validation function
-                                    validation_result = check_subscription_status(data)
-                                    st.write(f"- Subscription validation passes: {validation_result}")
-                                    found = True
-                                    break
-                            except Exception as e:
-                                continue
-                    if not found:
-                        st.error(f"User '{search_email}' not found in any user data files")
+                st.markdown("### 🔍 User Search & Debug Tool")
+                search_email = st.text_input("Enter email to search:", key="search_email", placeholder="e.g., user@example.com")
+                
+                if st.button("🔍 Search User", type="primary"):
+                    if not search_email:
+                        st.warning("Please enter an email address to search")
+                    else:
+                        import glob
+                        found = False
+                        st.info(f"Searching for: {search_email}")
+                        
+                        for filename in glob.glob('.user_data_*.json'):
+                            if 'anon' not in filename:
+                                try:
+                                    with open(filename, 'r') as f:
+                                        data = json.load(f)
+                                    if search_email.lower() in data.get('email', '').lower():
+                                        st.success(f"✅ Found user in {filename}")
+                                        
+                                        # Show user data in organized way
+                                        col1, col2 = st.columns(2)
+                                        with col1:
+                                            st.markdown("**📧 User Information:**")
+                                            st.write(f"- Email: {data.get('email', 'N/A')}")
+                                            st.write(f"- User ID: {data.get('user_id', 'N/A')}")
+                                            st.write(f"- Premium Status: {'✅ Premium' if data.get('is_premium', False) else '❌ Free'}")
+                                            st.write(f"- Premium Since: {data.get('premium_since', 'N/A')}")
+                                        
+                                        with col2:
+                                            st.markdown("**🔍 Validation Results:**")
+                                            validation_result = check_subscription_status(data)
+                                            st.write(f"- Subscription Valid: {'✅ Yes' if validation_result else '❌ No'}")
+                                            st.write(f"- Has Promo Code: {'✅ Yes' if data.get('promo_activation') else '❌ No'}")
+                                            if data.get('promo_activation'):
+                                                st.write(f"- Promo Details: {data.get('promo_activation')}")
+                                        
+                                        # Show full data in expandable section
+                                        with st.expander("📋 Full User Data (JSON)"):
+                                            st.json(data)
+                                        
+                                        found = True
+                                        break
+                                except Exception as e:
+                                    continue
+                        
+                        if not found:
+                            st.error(f"❌ User '{search_email}' not found in any user data files")
+                            st.info("💡 Try checking for typos or different email variations")
             elif promo_code == "viewsupport":
                 # Admin function to view support requests from database
                 support_requests = db.get_support_tickets(limit=10)
