@@ -1600,6 +1600,37 @@ if not st.session_state.user_premium:
                         st.info("No subscription management logs yet")
                 except FileNotFoundError:
                     st.info("No subscription management logs yet")
+            elif promo_code == "finduser":
+                # Admin function to find and debug user data
+                search_email = st.text_input("Enter email to search:", key="search_email")
+                if search_email and st.button("Search User"):
+                    import glob
+                    found = False
+                    for filename in glob.glob('.user_data_*.json'):
+                        if 'anon' not in filename:
+                            try:
+                                with open(filename, 'r') as f:
+                                    data = json.load(f)
+                                if search_email.lower() in data.get('email', '').lower():
+                                    st.success(f"Found user in {filename}")
+                                    st.json(data)
+                                    
+                                    # Show validation status
+                                    st.write("**Validation Results:**")
+                                    st.write(f"- Is Premium (stored): {data.get('is_premium', False)}")
+                                    st.write(f"- Has promo activation: {bool(data.get('promo_activation'))}")
+                                    st.write(f"- Promo activation: {data.get('promo_activation', 'None')}")
+                                    st.write(f"- Premium since: {data.get('premium_since', 'None')}")
+                                    
+                                    # Test validation function
+                                    validation_result = check_subscription_status(data)
+                                    st.write(f"- Subscription validation passes: {validation_result}")
+                                    found = True
+                                    break
+                            except Exception as e:
+                                continue
+                    if not found:
+                        st.error(f"User '{search_email}' not found in any user data files")
             elif promo_code == "viewsupport":
                 # Admin function to view support requests from database
                 support_requests = db.get_support_tickets(limit=10)
