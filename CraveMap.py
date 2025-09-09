@@ -16,7 +16,12 @@ from email.mime.text import MIMEText
 from database import CraveMapDB
 from backup_manager import BackupManager, simple_file_backup
 from email.mime.multipart import MIMEMultipart
-from database import db  # Import database instance
+try:
+    from database import db  # Import database instance
+except Exception as db_error:
+    # If database import fails, create a fallback
+    st.error(f"Database initialization failed: {db_error}")
+    db = None
 from spam_protection import SpamProtection
 
 # Initialize backup manager and spam protection
@@ -338,23 +343,69 @@ def get_user_id():
 
 # Function to load usage data for specific user
 def load_user_data(user_id):
-    """Load user data from database"""
-    return db.get_user(user_id)
+    """Load user data from database with fallback to JSON files"""
+    try:
+        if db is not None:
+            return db.get_user(user_id)
+        else:
+            raise Exception("Database instance not available")
+    except Exception as e:
+        # Fallback to JSON file system if database fails
+        try:
+            filename = f".user_data_{user_id}.json"
+            if os.path.exists(filename):
+                with open(filename, 'r') as f:
+                    return json.load(f)
+            else:
+                # Return default user structure
+                return {
+                    'user_id': user_id,
+                    'email': st.session_state.get('user_email', ''),
+                    'is_premium': False,
+                    'payment_completed': False,
+                    'stripe_customer_id': None,
+                    'monthly_searches': 0,
+                    'last_search_reset': datetime.now().isoformat(),
+                    'premium_since': None,
+                    'promo_activation': None
+                }
+        except Exception as file_error:
+            # Return minimal default structure
+            return {
+                'user_id': user_id,
+                'email': '',
+                'is_premium': False,
+                'payment_completed': False,
+                'monthly_searches': 0,
+                'last_search_reset': datetime.now().isoformat()
+            }
 
 # Function to save usage data for specific user
 def save_user_data(user_id, data):
-    """Save user data to database"""
-    db.save_user(
-        user_id=user_id,
-        email=data.get('email', st.session_state.get('user_email', '')),
-        is_premium=data.get('is_premium', False),
-        payment_completed=data.get('payment_completed', False),
-        stripe_customer_id=data.get('stripe_customer_id'),
-        monthly_searches=data.get('monthly_searches', 0),
-        last_search_reset=data.get('last_search_reset', datetime.now().isoformat()),
-        premium_since=data.get('premium_since'),
-        promo_activation=data.get('promo_activation')
-    )
+    """Save user data to database with fallback to JSON files"""
+    try:
+        if db is not None:
+            db.save_user(
+                user_id=user_id,
+                email=data.get('email', st.session_state.get('user_email', '')),
+                is_premium=data.get('is_premium', False),
+                payment_completed=data.get('payment_completed', False),
+                stripe_customer_id=data.get('stripe_customer_id'),
+                monthly_searches=data.get('monthly_searches', 0),
+                last_search_reset=data.get('last_search_reset', datetime.now().isoformat()),
+                premium_since=data.get('premium_since'),
+                promo_activation=data.get('promo_activation')
+            )
+        else:
+            raise Exception("Database instance not available")
+    except Exception as e:
+        # Fallback to JSON file system if database fails
+        try:
+            filename = f".user_data_{user_id}.json"
+            with open(filename, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as file_error:
+            st.error(f"File save failed: {str(file_error)}")
 
 def send_support_email(support_data):
     """Send support ticket directly to admin email via Gmail relay"""
@@ -880,8 +931,21 @@ def check_search_limits():
             st.warning("🔒 You've reached your 5 free searches for this month!")
             return False
         
-        # Increment search count using database method
-        new_count = db.update_search_count(user_id, 1)
+        # Increment search count using database method with fallback
+        try:
+            if db is not None:
+                new_count = db.update_search_count(user_id, 1)
+            else:
+                # Fallback: manually update the count
+                user_data['monthly_searches'] += 1
+                save_user_data(user_id, user_data)
+                new_count = user_data['monthly_searches']
+        except Exception as e:
+            # Fallback: manually update the count
+            user_data['monthly_searches'] += 1
+            save_user_data(user_id, user_data)
+            new_count = user_data['monthly_searches']
+        
         st.session_state.monthly_searches = new_count
         
         remaining = 5 - new_count
