@@ -1,0 +1,24 @@
+{
+  "backup_timestamp": "2025-09-09T12:17:55.476372",
+  "tables": {
+    "users": [],
+    "support_tickets": [],
+    "sqlite_sequence": [
+      {
+        "name": "migrations",
+        "seq": 1
+      }
+    ],
+    "rate_limits": [],
+    "migrations": [
+      {
+        "id": 1,
+        "migration_name": "json_to_sqlite_migration",
+        "executed_at": "2025-09-09T12:17:55.464898"
+      }
+    ],
+    "rate_limits_advanced": [],
+    "suspicious_activity": [],
+    "blocked_patterns": []
+  }
+}
