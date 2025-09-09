@@ -1137,6 +1137,7 @@ else:
     st.markdown(f"**Status:** {premium_badge} | **Mode:** Anonymous (Login for premium features)")
 
 st.title("CraveMap: Find Food by Craving")
+st.markdown("*made by Alvin*")
 st.markdown("Type in what you're craving and get real nearby suggestions!")
 
 # Sidebar with user status
