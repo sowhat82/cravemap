@@ -1616,6 +1616,9 @@ if not st.session_state.user_premium:
                 
                 # Get the correct user ID after login check
                 user_id = get_user_id()
+                user_email = st.session_state.get('user_email', '')
+                
+                st.info(f"🔍 Upgrading user: {user_email} (ID: {user_id})")
                 
                 # Update session state
                 st.session_state.user_premium = True
@@ -1623,8 +1626,9 @@ if not st.session_state.user_premium:
                 
                 # Update usage data in database
                 user_data = load_user_data(user_id)
-                save_user_data(user_id, {
-                    'email': user_data.get('email', st.session_state.get('user_email', '')),
+                
+                upgrade_data = {
+                    'email': user_email,
                     'is_premium': True,
                     'payment_completed': True,
                     'monthly_searches': user_data.get('monthly_searches', 0),
@@ -1632,7 +1636,26 @@ if not st.session_state.user_premium:
                     'premium_since': datetime.now().isoformat(),
                     'promo_activation': f"Admin code: {promo_code}",
                     'user_id': user_id
-                })
+                }
+                
+                # Save with detailed logging
+                try:
+                    save_user_data(user_id, upgrade_data)
+                    st.success(f"✅ Data saved for user ID: {user_id}")
+                    
+                    # Immediately verify the save worked
+                    verification_data = load_user_data(user_id)
+                    if verification_data.get('is_premium'):
+                        st.success("✅ Premium status verified in saved data")
+                    else:
+                        st.error("❌ Premium status NOT found in saved data - save failed!")
+                        
+                    # Log the save operation
+                    with open('.upgrade_log.txt', 'a') as f:
+                        f.write(f"{datetime.now().isoformat()}: Upgraded {user_email} (ID: {user_id}) to premium\n")
+                        
+                except Exception as e:
+                    st.error(f"❌ Save failed: {str(e)}")
                 
                 st.success("🎉 Admin code applied! Premium activated!")
                 st.rerun()
@@ -1732,6 +1755,37 @@ if not st.session_state.user_premium:
             elif promo_code == "finduserhelp":
                 st.markdown("### 🔍 User Search Instructions")
                 st.info("1. Enter 'finduser' as promo code and click Apply\n2. Then enter email address to search")
+            elif promo_code == "testpersist":
+                # Test file persistence in production
+                import time
+                test_data = {
+                    "test_time": datetime.now().isoformat(),
+                    "test_message": "File persistence test",
+                    "app_restart_test": True
+                }
+                
+                try:
+                    # Write test file
+                    with open('.persistence_test.json', 'w') as f:
+                        json.dump(test_data, f, indent=2)
+                    st.success("✅ Test file written successfully")
+                    
+                    # Try to read it back immediately
+                    with open('.persistence_test.json', 'r') as f:
+                        read_data = json.load(f)
+                    st.success("✅ Test file read back successfully")
+                    st.json(read_data)
+                    
+                    # Show current directory and files
+                    import os
+                    st.write(f"**Current directory:** {os.getcwd()}")
+                    user_files = [f for f in os.listdir('.') if f.startswith('.user_data_')]
+                    st.write(f"**User data files found:** {len(user_files)}")
+                    for f in user_files[:5]:  # Show first 5
+                        st.write(f"- {f}")
+                        
+                except Exception as e:
+                    st.error(f"❌ File persistence test failed: {str(e)}")
             elif promo_code == "debuguser":
                 # Alternative command for user debugging
                 st.markdown("### 🔍 User Search & Debug Tool")
