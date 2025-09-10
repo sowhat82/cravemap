@@ -49,9 +49,9 @@ This guide will help you set up a free Neon PostgreSQL database for persistent d
 
 ### Example:
 ```env
-OPENROUTER_API_KEY=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
-GOOGLE_API_KEY=AIzaSyC0X7XNJNuilqj0ZknvDC7mysIA1tffsog
-ADSENSE_CLIENT_ID=ca-pub-3585941892824754
+OPENROUTER_API_KEY=sk-or-v1-your-actual-openrouter-key-here
+GOOGLE_API_KEY=your-actual-google-api-key-here
+ADSENSE_CLIENT_ID=ca-pub-your-actual-adsense-id
 
 # PostgreSQL Connection String for Local Development
 POSTGRES_CONNECTION_STRING=postgresql://username:password@ep-xxxx-xxxx.us-east-2.aws.neon.tech/neondb
