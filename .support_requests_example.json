@@ -1,0 +1,18 @@
+[
+  {
+    "timestamp": "2025-09-04T14:30:22.123456",
+    "user_email": "john.doe@gmail.com",
+    "user_id": "abc123def456",
+    "support_type": "Technical Issue",
+    "subject": "Search results not loading",
+    "message": "Hi, when I search for pizza in New York, the app shows a loading spinner but no results appear. I've tried refreshing multiple times. Please help!"
+  },
+  {
+    "timestamp": "2025-09-04T16:45:11.789012",
+    "user_email": "sarah.smith@yahoo.com", 
+    "user_id": "xyz789ghi012",
+    "support_type": "Billing Question",
+    "subject": "Cannot cancel subscription",
+    "message": "I'm trying to cancel my premium subscription but don't see the option in my account. Can you help me cancel and confirm the last billing date?"
+  }
+]

@@ -14,14 +14,32 @@ from legal import PRIVACY_POLICY, TERMS_OF_SERVICE
 import smtplib
 from email.mime.text import MIMEText
 from database import CraveMapDB
+from postgres_database import get_postgres_db
 from backup_manager import BackupManager, simple_file_backup
 from email.mime.multipart import MIMEMultipart
+
+# Initialize PostgreSQL database and fallback to SQLite
+postgres_db = None
 try:
-    from database import db  # Import database instance
-except Exception as db_error:
-    # If database import fails, create a fallback
-    st.error(f"Database initialization failed: {db_error}")
-    db = None
+    postgres_db = get_postgres_db()
+    # Test PostgreSQL connection
+    postgres_success, postgres_message = postgres_db.test_connection()
+    if postgres_success:
+        st.info("🟢 PostgreSQL database connected successfully")
+        db = None  # Use PostgreSQL primarily
+    else:
+        st.warning(f"⚠️ PostgreSQL connection failed: {postgres_message}. Using SQLite fallback.")
+        from database import db  # Import SQLite database instance
+        postgres_db = None
+except Exception as postgres_error:
+    st.warning(f"PostgreSQL initialization failed: {postgres_error}. Using SQLite fallback.")
+    try:
+        from database import db  # Import SQLite database instance
+    except Exception as db_error:
+        # If both databases fail, create a fallback
+        st.error(f"All database initialization failed: {db_error}")
+        db = None
+        postgres_db = None
 from spam_protection import SpamProtection
 
 # Initialize backup manager and spam protection
@@ -193,27 +211,47 @@ def show_login_option():
             
             if submit and email:
                 if "@" in email and "." in email:  # Basic email validation
-                    st.session_state['user_email'] = email.lower().strip()
+                    email = email.lower().strip()
+                    st.session_state['user_email'] = email
                     
-                    # Refresh session with user's actual data
-                    user_id = hashlib.md5(email.lower().strip().encode()).hexdigest()[:8]
-                    user_data = load_user_data(user_id)
-                    st.session_state.user_premium = bool(user_data.get('is_premium', False))
-                    st.session_state.payment_completed = bool(user_data.get('payment_completed', False))
-                    st.session_state.monthly_searches = user_data['monthly_searches']
-                    st.session_state.last_search_reset = user_data['last_search_reset']
+                    # Load user data from PostgreSQL or create if not exists
+                    user_data = None
                     
-                    # Remember user on this device if requested
-                    if remember_me:
-                        try:
-                            with open('.remembered_user.txt', 'w') as f:
-                                f.write(email.lower().strip())
-                        except:
-                            pass
+                    # Try PostgreSQL first
+                    if postgres_db is not None:
+                        user_data = postgres_db.get_user(email)
+                        if not user_data:
+                            # Create new user in PostgreSQL (simple email-only registration)
+                            password_hash = hashlib.sha256(email.encode()).hexdigest()  # Simple hash for now
+                            if postgres_db.create_user(email, password_hash):
+                                user_data = postgres_db.get_user(email)
+                                st.info("✅ New account created in PostgreSQL!")
                     
-                    premium_status = "Premium" if st.session_state.user_premium else "Free"
-                    st.success(f"Welcome back, {email}! ({premium_status} account)")
-                    st.rerun()
+                    # Fallback to SQLite if PostgreSQL fails
+                    if not user_data and db is not None:
+                        user_id = hashlib.md5(email.encode()).hexdigest()[:8]
+                        user_data = load_user_data(user_id)
+                    
+                    # Update session state
+                    if user_data:
+                        st.session_state.user_premium = bool(user_data.get('is_premium', False))
+                        st.session_state.payment_completed = bool(user_data.get('payment_completed', False))
+                        st.session_state.monthly_searches = user_data.get('monthly_searches', 0)
+                        st.session_state.last_search_reset = user_data.get('last_search_reset', datetime.now().isoformat())
+                    
+                        # Remember user on this device if requested
+                        if remember_me:
+                            try:
+                                with open('.remembered_user.txt', 'w') as f:
+                                    f.write(email)
+                            except:
+                                pass
+                        
+                        premium_status = "Premium" if st.session_state.user_premium else "Free"
+                        st.success(f"Welcome back, {email}! ({premium_status} account)")
+                        st.rerun()
+                    else:
+                        st.error("Failed to load or create user account")
                 else:
                     st.error("Please enter a valid email address")
         
@@ -343,12 +381,37 @@ def get_user_id():
 
 # Function to load usage data for specific user
 def load_user_data(user_id):
-    """Load user data from database with fallback to JSON files"""
+    """Load user data from PostgreSQL database with SQLite fallback"""
+    # Get user email for database lookup
+    user_email = st.session_state.get('user_email', '')
+    
     try:
+        # Try PostgreSQL first
+        if postgres_db is not None and user_email:
+            user_data = postgres_db.get_user(user_email)
+            if user_data:
+                # Convert PostgreSQL format to expected format
+                return {
+                    'user_id': user_id,
+                    'email': user_data['email'],
+                    'is_premium': user_data['is_premium'],
+                    'payment_completed': user_data['is_premium'],  # Assume payment completed if premium
+                    'stripe_customer_id': None,  # Will need to add this to PostgreSQL schema later
+                    'monthly_searches': 0,  # Will add tracking later
+                    'last_search_reset': datetime.now().isoformat(),
+                    'premium_since': user_data['premium_expiry'].isoformat() if user_data['premium_expiry'] else None,
+                    'promo_activation': None,
+                    'first_name': user_data['first_name'],
+                    'last_name': user_data['last_name'],
+                    'phone': user_data['phone']
+                }
+        
+        # Fallback to SQLite database
         if db is not None:
             return db.get_user(user_id)
         else:
-            raise Exception("Database instance not available")
+            raise Exception("Both PostgreSQL and SQLite databases unavailable")
+            
     except Exception as e:
         # Only fallback to JSON in development
         if os.getenv('STREAMLIT_ENVIRONMENT') != 'cloud':
@@ -395,12 +458,27 @@ def load_user_data(user_id):
 
 # Function to save usage data for specific user
 def save_user_data(user_id, data):
-    """Save user data to database with fallback to JSON files"""
+    """Save user data to PostgreSQL database with SQLite fallback"""
+    user_email = data.get('email', st.session_state.get('user_email', ''))
+    
     try:
+        # Try PostgreSQL first
+        if postgres_db is not None and user_email:
+            # Update user in PostgreSQL
+            postgres_db.update_user(
+                email=user_email,
+                first_name=data.get('first_name', ''),
+                last_name=data.get('last_name', ''),
+                phone=data.get('phone', ''),
+                is_premium=data.get('is_premium', False)
+            )
+            return
+        
+        # Fallback to SQLite database
         if db is not None:
             db.save_user(
                 user_id=user_id,
-                email=data.get('email', st.session_state.get('user_email', '')),
+                email=user_email,
                 is_premium=data.get('is_premium', False),
                 payment_completed=data.get('payment_completed', False),
                 stripe_customer_id=data.get('stripe_customer_id'),
@@ -409,10 +487,10 @@ def save_user_data(user_id, data):
                 premium_since=data.get('premium_since'),
                 promo_activation=data.get('promo_activation')
             )
-            # In production, ALWAYS use database - don't fall back to files
             return
         else:
-            raise Exception("Database instance not available")
+            raise Exception("Both PostgreSQL and SQLite databases unavailable")
+            
     except Exception as e:
         # Only fallback to JSON in development or if database is completely broken
         if os.getenv('STREAMLIT_ENVIRONMENT') != 'cloud':
@@ -1579,12 +1657,45 @@ if not st.session_state.user_premium:
                     st.info(f"Searching for: {search_email}")
                     found = False
                     
-                    # First, try searching in database
-                    if db is not None:
+                    # First, try searching in PostgreSQL database
+                    if postgres_db is not None:
+                        try:
+                            user_data = postgres_db.get_user(search_email)
+                            if user_data:
+                                st.success(f"✅ Found user in POSTGRESQL DATABASE")
+                                found = True
+                                
+                                # Show user data in organized way
+                                col_a, col_b = st.columns(2)
+                                with col_a:
+                                    st.markdown("**📧 User Information:**")
+                                    st.write(f"- Email: {user_data.get('email', 'N/A')}")
+                                    st.write(f"- First Name: {user_data.get('first_name', 'N/A')}")
+                                    st.write(f"- Last Name: {user_data.get('last_name', 'N/A')}")
+                                    st.write(f"- Phone: {user_data.get('phone', 'N/A')}")
+                                    st.write(f"- Premium Status: {'✅ Premium' if user_data.get('is_premium', False) else '❌ Free'}")
+                                    st.write(f"- Premium Expiry: {user_data.get('premium_expiry', 'N/A')}")
+                                
+                                with col_b:
+                                    st.markdown("**🔍 Database Information:**")
+                                    st.write(f"- Database: PostgreSQL")
+                                    total_users = postgres_db.get_user_count()
+                                    st.write(f"- Total Users: {total_users}")
+                                    st.write(f"- Account Active: {'✅ Yes' if user_data.get('is_premium') else '✅ Yes (Free)'}")
+                                
+                                # Show full data in expandable section
+                                with st.expander("📋 Full User Data (JSON)"):
+                                    st.json(user_data)
+                                    
+                        except Exception as e:
+                            st.warning(f"PostgreSQL search failed: {str(e)}")
+                    
+                    # Fallback to SQLite database if PostgreSQL search didn't find user
+                    if not found and db is not None:
                         try:
                             # Get all users from database and search by email
                             stats = db.get_stats()
-                            st.write(f"**Database has {stats.get('total_users', 0)} users**")
+                            st.write(f"**SQLite Database has {stats.get('total_users', 0)} users**")
                             
                             # Try to find user by generating possible user IDs
                             import hashlib
@@ -1592,7 +1703,7 @@ if not st.session_state.user_premium:
                             
                             data = db.get_user(possible_user_id)
                             if data and data.get('email', '').lower() == search_email.lower():
-                                st.success(f"✅ Found user in DATABASE (ID: {possible_user_id})")
+                                st.success(f"✅ Found user in SQLITE DATABASE (ID: {possible_user_id})")
                                 found = True
                                 
                                 # Show user data in organized way
@@ -1617,7 +1728,7 @@ if not st.session_state.user_premium:
                                     st.json(data)
                                     
                         except Exception as e:
-                            st.warning(f"Database search failed: {str(e)}")
+                            st.warning(f"SQLite database search failed: {str(e)}")
                     
                     # Fallback: search JSON files (for local development)
                     if not found:
@@ -1675,51 +1786,78 @@ if not st.session_state.user_premium:
                     st.warning("🔐 Please login first to apply premium promo code")
                     st.stop()
                 
-                # Get the correct user ID after login check
-                user_id = get_user_id()
+                # Get the user email and ID
                 user_email = st.session_state.get('user_email', '')
+                user_id = get_user_id()
                 
                 st.info(f"🔍 Upgrading user: {user_email} (ID: {user_id})")
                 
-                # Update session state
-                st.session_state.user_premium = True
-                st.session_state.payment_completed = True
+                # Calculate premium expiry (1 year from now)
+                premium_expiry = datetime.now() + timedelta(days=365)
                 
-                # Update usage data in database
-                user_data = load_user_data(user_id)
+                # Update in PostgreSQL first
+                upgrade_success = False
+                if postgres_db is not None:
+                    try:
+                        upgrade_success = postgres_db.upgrade_to_premium(user_email, premium_expiry)
+                        if upgrade_success:
+                            st.success("✅ Premium status saved to PostgreSQL database")
+                        else:
+                            st.error("❌ Failed to save to PostgreSQL database")
+                    except Exception as e:
+                        st.error(f"❌ PostgreSQL upgrade error: {e}")
                 
-                upgrade_data = {
-                    'email': user_email,
-                    'is_premium': True,
-                    'payment_completed': True,
-                    'monthly_searches': user_data.get('monthly_searches', 0),
-                    'last_search_reset': user_data.get('last_search_reset', datetime.now().isoformat()),
-                    'premium_since': datetime.now().isoformat(),
-                    'promo_activation': f"Admin code: {promo_code}",
-                    'user_id': user_id
-                }
+                # Fallback to SQLite if PostgreSQL fails
+                if not upgrade_success and db is not None:
+                    try:
+                        # Update session state
+                        st.session_state.user_premium = True
+                        st.session_state.payment_completed = True
+                        
+                        # Update usage data in SQLite database
+                        user_data = load_user_data(user_id)
+                        
+                        upgrade_data = {
+                            'email': user_email,
+                            'is_premium': True,
+                            'payment_completed': True,
+                            'monthly_searches': user_data.get('monthly_searches', 0),
+                            'last_search_reset': user_data.get('last_search_reset', datetime.now().isoformat()),
+                            'premium_since': datetime.now().isoformat(),
+                            'promo_activation': f"Admin code: {promo_code}",
+                            'user_id': user_id
+                        }
+                        
+                        save_user_data(user_id, upgrade_data)
+                        upgrade_success = True
+                        st.success("✅ Premium status saved to SQLite database (fallback)")
+                    except Exception as e:
+                        st.error(f"❌ SQLite upgrade error: {e}")
                 
-                # Save with detailed logging
-                try:
-                    save_user_data(user_id, upgrade_data)
-                    st.success(f"✅ Data saved for user ID: {user_id}")
+                if upgrade_success:
+                    # Update session state for immediate UI changes
+                    st.session_state.user_premium = True
+                    st.session_state.payment_completed = True
                     
-                    # Immediately verify the save worked
-                    verification_data = load_user_data(user_id)
-                    if verification_data.get('is_premium'):
-                        st.success("✅ Premium status verified in saved data")
-                    else:
-                        st.error("❌ Premium status NOT found in saved data - save failed!")
-                        
-                    # Log the save operation
-                    with open('.upgrade_log.txt', 'a') as f:
-                        f.write(f"{datetime.now().isoformat()}: Upgraded {user_email} (ID: {user_id}) to premium\n")
-                        
-                except Exception as e:
-                    st.error(f"❌ Save failed: {str(e)}")
-                
-                st.success("🎉 Admin code applied! Premium activated!")
-                st.rerun()
+                    # Log the upgrade operation
+                    try:
+                        with open('.upgrade_log.txt', 'a') as f:
+                            f.write(f"{datetime.now().isoformat()}: Upgraded {user_email} (ID: {user_id}) to premium via PostgreSQL\n")
+                    except:
+                        pass
+                    
+                    # Verify the upgrade worked by reloading user data
+                    if postgres_db is not None:
+                        verification_data = postgres_db.get_user(user_email)
+                        if verification_data and verification_data.get('is_premium'):
+                            st.success("✅ Premium status verified in PostgreSQL database")
+                        else:
+                            st.warning("⚠️ Could not verify premium status in database")
+                    
+                    st.success("🎉 Admin code applied! Premium activated!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to upgrade to premium - all database operations failed")
             elif promo_code == ADMIN_DOWNGRADE_CODE:
                 # Get current user ID
                 user_id = get_user_id()
