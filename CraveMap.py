@@ -1543,6 +1543,67 @@ if not st.session_state.user_premium:
         
         st.markdown("*🔒 Powered by Stripe | 💳 All major cards accepted | 🛡️ PCI compliant*")
     
+    # Admin diagnostic tool (activated by session state)
+    if st.session_state.get('diagnostic_mode', False):
+        st.markdown("---")
+        st.markdown("### 🔍 User Search & Debug Tool")
+        search_email = st.text_input("Enter email to search:", key="diagnostic_search_email", placeholder="e.g., user@example.com")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔍 Search User", type="primary", key="diagnostic_search_btn"):
+                if not search_email:
+                    st.warning("Please enter an email address to search")
+                else:
+                    import glob
+                    found = False
+                    st.info(f"Searching for: {search_email}")
+                    
+                    for filename in glob.glob('.user_data_*.json'):
+                        if 'anon' not in filename:
+                            try:
+                                with open(filename, 'r') as f:
+                                    data = json.load(f)
+                                if search_email.lower() in data.get('email', '').lower():
+                                    st.success(f"✅ Found user in {filename}")
+                                    
+                                    # Show user data in organized way
+                                    col_a, col_b = st.columns(2)
+                                    with col_a:
+                                        st.markdown("**📧 User Information:**")
+                                        st.write(f"- Email: {data.get('email', 'N/A')}")
+                                        st.write(f"- User ID: {data.get('user_id', 'N/A')}")
+                                        st.write(f"- Premium Status: {'✅ Premium' if data.get('is_premium', False) else '❌ Free'}")
+                                        st.write(f"- Premium Since: {data.get('premium_since', 'N/A')}")
+                                    
+                                    with col_b:
+                                        st.markdown("**🔍 Validation Results:**")
+                                        validation_result = check_subscription_status(data)
+                                        st.write(f"- Subscription Valid: {'✅ Yes' if validation_result else '❌ No'}")
+                                        st.write(f"- Has Promo Code: {'✅ Yes' if data.get('promo_activation') else '❌ No'}")
+                                        if data.get('promo_activation'):
+                                            st.write(f"- Promo Details: {data.get('promo_activation')}")
+                                    
+                                    # Show full data in expandable section
+                                    with st.expander("📋 Full User Data (JSON)"):
+                                        st.json(data)
+                                    
+                                    found = True
+                                    break
+                            except Exception as e:
+                                continue
+                    
+                    if not found:
+                        st.error(f"❌ User '{search_email}' not found in any user data files")
+                        st.info("💡 Try checking for typos or different email variations")
+        
+        with col2:
+            if st.button("❌ Close Diagnostic Tool", key="close_diagnostic"):
+                st.session_state.diagnostic_mode = False
+                st.rerun()
+        
+        st.markdown("---")
+    
     # Hidden admin controls (secret access for you)
     with st.expander("🔐 Have a promo code?"):
         promo_code = st.text_input("Enter promo code:", key="promo_code_input", help="Enter your promotional code")
@@ -1666,10 +1727,17 @@ if not st.session_state.user_premium:
                     st.info("No subscription management logs yet")
             elif promo_code == "finduser":
                 # Admin function to find and debug user data
+                st.session_state.diagnostic_mode = True
+                st.rerun()
+            elif promo_code == "finduserhelp":
+                st.markdown("### 🔍 User Search Instructions")
+                st.info("1. Enter 'finduser' as promo code and click Apply\n2. Then enter email address to search")
+            elif promo_code == "debuguser":
+                # Alternative command for user debugging
                 st.markdown("### 🔍 User Search & Debug Tool")
-                search_email = st.text_input("Enter email to search:", key="search_email", placeholder="e.g., user@example.com")
+                search_email = st.text_input("Enter email to search:", key="debug_search_email", placeholder="e.g., user@example.com")
                 
-                if st.button("🔍 Search User", type="primary"):
+                if st.button("🔍 Search User Now", type="primary", key="debug_search_btn"):
                     if not search_email:
                         st.warning("Please enter an email address to search")
                     else:
