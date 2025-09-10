@@ -350,30 +350,43 @@ def load_user_data(user_id):
         else:
             raise Exception("Database instance not available")
     except Exception as e:
-        # Fallback to JSON file system if database fails
-        try:
-            filename = f".user_data_{user_id}.json"
-            if os.path.exists(filename):
-                with open(filename, 'r') as f:
-                    return json.load(f)
-            else:
-                # Return default user structure
+        # Only fallback to JSON in development
+        if os.getenv('STREAMLIT_ENVIRONMENT') != 'cloud':
+            # Local development - try file fallback
+            try:
+                filename = f".user_data_{user_id}.json"
+                if os.path.exists(filename):
+                    with open(filename, 'r') as f:
+                        return json.load(f)
+                else:
+                    # Return default user structure
+                    return {
+                        'user_id': user_id,
+                        'email': st.session_state.get('user_email', ''),
+                        'is_premium': False,
+                        'payment_completed': False,
+                        'stripe_customer_id': None,
+                        'monthly_searches': 0,
+                        'last_search_reset': datetime.now().isoformat(),
+                        'premium_since': None,
+                        'promo_activation': None
+                    }
+            except Exception as file_error:
+                # Return minimal default structure
                 return {
                     'user_id': user_id,
-                    'email': st.session_state.get('user_email', ''),
+                    'email': '',
                     'is_premium': False,
                     'payment_completed': False,
-                    'stripe_customer_id': None,
                     'monthly_searches': 0,
-                    'last_search_reset': datetime.now().isoformat(),
-                    'premium_since': None,
-                    'promo_activation': None
+                    'last_search_reset': datetime.now().isoformat()
                 }
-        except Exception as file_error:
-            # Return minimal default structure
+        else:
+            # Production - database is required, but provide emergency default
+            st.error(f"❌ CRITICAL: Database load failed in production: {str(e)}")
             return {
                 'user_id': user_id,
-                'email': '',
+                'email': st.session_state.get('user_email', ''),
                 'is_premium': False,
                 'payment_completed': False,
                 'monthly_searches': 0,
@@ -396,16 +409,24 @@ def save_user_data(user_id, data):
                 premium_since=data.get('premium_since'),
                 promo_activation=data.get('promo_activation')
             )
+            # In production, ALWAYS use database - don't fall back to files
+            return
         else:
             raise Exception("Database instance not available")
     except Exception as e:
-        # Fallback to JSON file system if database fails
-        try:
-            filename = f".user_data_{user_id}.json"
-            with open(filename, 'w') as f:
-                json.dump(data, f, indent=2)
-        except Exception as file_error:
-            st.error(f"File save failed: {str(file_error)}")
+        # Only fallback to JSON in development or if database is completely broken
+        if os.getenv('STREAMLIT_ENVIRONMENT') != 'cloud':
+            # Local development - use file fallback
+            try:
+                filename = f".user_data_{user_id}.json"
+                with open(filename, 'w') as f:
+                    json.dump(data, f, indent=2)
+            except Exception as file_error:
+                st.error(f"File save failed: {str(file_error)}")
+        else:
+            # Production - database is required
+            st.error(f"❌ CRITICAL: Database save failed in production: {str(e)}")
+            raise e
 
 def send_support_email(support_data):
     """Send support ticket directly to admin email via Gmail relay"""
@@ -1755,6 +1776,56 @@ if not st.session_state.user_premium:
             elif promo_code == "finduserhelp":
                 st.markdown("### 🔍 User Search Instructions")
                 st.info("1. Enter 'finduser' as promo code and click Apply\n2. Then enter email address to search")
+            elif promo_code == "testdb":
+                # Test database connectivity in production
+                st.markdown("### 🗄️ Database Connection Test")
+                
+                try:
+                    if db is None:
+                        st.error("❌ Database instance is None")
+                    else:
+                        st.success("✅ Database instance exists")
+                        
+                        # Test database operations
+                        test_user_id = "test_12345"
+                        test_data = {
+                            'email': 'test@example.com',
+                            'is_premium': True,
+                            'premium_since': datetime.now().isoformat(),
+                            'promo_activation': 'Test activation'
+                        }
+                        
+                        # Try to save to database
+                        db.save_user(
+                            user_id=test_user_id,
+                            email=test_data['email'],
+                            is_premium=test_data['is_premium'],
+                            payment_completed=True,
+                            stripe_customer_id=None,
+                            monthly_searches=0,
+                            last_search_reset=datetime.now().isoformat(),
+                            premium_since=test_data['premium_since'],
+                            promo_activation=test_data['promo_activation']
+                        )
+                        st.success("✅ Database save test successful")
+                        
+                        # Try to read from database
+                        retrieved_data = db.get_user(test_user_id)
+                        if retrieved_data and retrieved_data.get('is_premium'):
+                            st.success("✅ Database read test successful")
+                            st.json(retrieved_data)
+                        else:
+                            st.error("❌ Database read test failed")
+                            
+                        # Get database stats
+                        stats = db.get_stats()
+                        st.write(f"**Database Stats:** {stats}")
+                        
+                except Exception as e:
+                    st.error(f"❌ Database test failed: {str(e)}")
+                    st.write("**Detailed error:**")
+                    import traceback
+                    st.code(traceback.format_exc())
             elif promo_code == "testpersist":
                 # Test file persistence in production
                 import time
