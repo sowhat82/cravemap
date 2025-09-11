@@ -1,8 +1,12 @@
 import streamlit as st
 import requests
 import os
-from openai import OpenAI
 from dotenv import load_dotenv
+
+# Load environment variables FIRST, before any other imports
+load_dotenv()
+
+from openai import OpenAI
 import streamlit.components.v1 as components
 import stripe
 import json

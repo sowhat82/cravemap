@@ -14,19 +14,42 @@ class PostgresDatabase:
     
     def get_connection_string(self):
         """Get PostgreSQL connection string from environment or Streamlit secrets"""
+        # Try environment variable first (local development)
+        conn_str = os.getenv("POSTGRES_CONNECTION_STRING")
+        if conn_str:
+            print(f"✅ Using environment variable for PostgreSQL connection")
+            return conn_str
+        
+        # Try Streamlit secrets (production deployment)
         try:
-            # Try Streamlit secrets first (for production)
-            return st.secrets["postgres"]["connection_string"]
-        except:
-            # Fallback to environment variables (for local development)
-            return os.getenv("POSTGRES_CONNECTION_STRING")
+            # Check if we're in a Streamlit context
+            if hasattr(st, 'secrets'):
+                # Try the postgres section first
+                if 'postgres' in st.secrets and 'connection_string' in st.secrets['postgres']:
+                    conn_str = st.secrets["postgres"]["connection_string"]
+                    print(f"✅ Using Streamlit postgres.connection_string")
+                    return conn_str
+                # Try direct POSTGRES_CONNECTION_STRING
+                elif 'POSTGRES_CONNECTION_STRING' in st.secrets:
+                    conn_str = st.secrets["POSTGRES_CONNECTION_STRING"]
+                    print(f"✅ Using Streamlit POSTGRES_CONNECTION_STRING")
+                    return conn_str
+        except Exception as e:
+            print(f"⚠️ Streamlit secrets not available: {e}")
+        
+        print(f"❌ No PostgreSQL connection string found")
+        return None
     
     def get_connection(self):
         """Get database connection"""
+        if not self.connection_string:
+            print(f"❌ No connection string available")
+            return None
+            
         try:
             return psycopg2.connect(self.connection_string)
         except Exception as e:
-            st.error(f"Database connection failed: {e}")
+            print(f"❌ Database connection failed: {e}")
             return None
     
     def init_tables(self):
