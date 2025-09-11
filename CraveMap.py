@@ -577,7 +577,10 @@ def check_subscription_status(user_data):
         return False  # Not premium anyway
     
     # Check if this is a promo code activation (admin override)
-    promo_activation = user_data.get('promo_activation', '')
+    # Guard against None or non-string values from storage
+    promo_activation = user_data.get('promo_activation')
+    if not isinstance(promo_activation, str):
+        promo_activation = ''
     if 'Admin code:' in promo_activation:
         return True  # Promo code activations don't expire
     
