@@ -185,6 +185,36 @@ def increment_trial_search(user_id, user_data):
     return trial_searches[today_str]
 
 # User authentication system
+def restore_user_session(email):
+    """Restore complete user session data for remembered users"""
+    try:
+        # Set email in session state
+        st.session_state['user_email'] = email
+        
+        # Load user data from PostgreSQL or SQLite
+        user_data = None
+        
+        # Try PostgreSQL first
+        if postgres_db is not None:
+            user_data = postgres_db.get_user(email)
+        
+        # Fallback to SQLite if PostgreSQL fails
+        if not user_data and db is not None:
+            user_id = hashlib.md5(email.encode()).hexdigest()[:8]
+            user_data = load_user_data(user_id)
+        
+        # Update session state with user data
+        if user_data:
+            st.session_state.user_premium = bool(user_data.get('is_premium', False))
+            st.session_state.payment_completed = bool(user_data.get('payment_completed', False))
+            st.session_state.monthly_searches = user_data.get('monthly_searches', 0)
+            st.session_state.last_search_reset = user_data.get('last_search_reset', datetime.now().isoformat())
+            return True
+        
+        return False
+    except Exception:
+        return False
+
 def get_user_email():
     """Get user email through optional login"""
     if 'user_email' not in st.session_state:
@@ -196,7 +226,14 @@ def get_user_email():
             with open('.remembered_user.txt', 'r') as f:
                 remembered_email = f.read().strip()
                 if remembered_email:
-                    st.session_state['user_email'] = remembered_email
+                    # Restore complete user session data
+                    if restore_user_session(remembered_email):
+                        # Only show success message in debug mode to avoid UI clutter
+                        if os.getenv('CRAVEMAP_DEBUG', 'false').lower() == 'true':
+                            st.sidebar.success(f"Welcome back, {remembered_email}!")
+                    else:
+                        # If session restore fails, just set the email
+                        st.session_state['user_email'] = remembered_email
         except:
             pass
     
