@@ -245,8 +245,246 @@ def show_login_option():
         st.sidebar.markdown("### 🔐 Login (Optional)")
         st.sidebar.markdown("Login to access premium features & save your progress")
         
+        # Email input with autocomplete (outside form due to component limitations)
+        st.sidebar.markdown("**Enter your email:**")
+        
+        # Create the email autocomplete component in sidebar
+        email_autocomplete_html = f"""
+        <div id="email-autocomplete-container">
+            <style>
+                .email-input-container {{
+                    position: relative;
+                    width: 100%;
+                    margin-bottom: 10px;
+                }}
+                
+                #email-input {{
+                    width: 100%;
+                    padding: 8px 12px;
+                    border: 1px solid #ddd;
+                    border-radius: 4px;
+                    font-size: 14px;
+                    box-sizing: border-box;
+                    background-color: #ffffff;
+                }}
+                
+                #email-input:focus {{
+                    border-color: #ff4b4b;
+                    outline: none;
+                    box-shadow: 0 0 0 2px rgba(255, 75, 75, 0.2);
+                }}
+                
+                .email-suggestions {{
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    right: 0;
+                    background: white;
+                    border: 1px solid #ddd;
+                    border-top: none;
+                    border-radius: 0 0 4px 4px;
+                    max-height: 150px;
+                    overflow-y: auto;
+                    z-index: 1000;
+                    display: none;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                }}
+                
+                .email-suggestion {{
+                    padding: 8px 12px;
+                    cursor: pointer;
+                    border-bottom: 1px solid #f0f0f0;
+                    font-size: 14px;
+                }}
+                
+                .email-suggestion:hover,
+                .email-suggestion.selected {{
+                    background-color: #f8f9fa;
+                }}
+                
+                .email-suggestion:last-child {{
+                    border-bottom: none;
+                }}
+                
+                .help-text {{
+                    font-size: 12px;
+                    color: #666;
+                    margin-top: 5px;
+                }}
+            </style>
+            
+            <div class="email-input-container">
+                <input 
+                    type="email" 
+                    id="email-input" 
+                    placeholder="your@email.com"
+                    autocomplete="off"
+                />
+                <div id="email-suggestions" class="email-suggestions"></div>
+            </div>
+            <div class="help-text">Enter your email to access premium features</div>
+        </div>
+        
+        <script>
+            (function() {{
+                const emailInput = document.getElementById('email-input');
+                const suggestionsContainer = document.getElementById('email-suggestions');
+                let selectedIndex = -1;
+                
+                // Load email history from localStorage
+                function getEmailHistory() {{
+                    try {{
+                        const emails = localStorage.getItem('cravemap_email_history');
+                        return emails ? JSON.parse(emails) : [];
+                    }} catch (e) {{
+                        console.error('Error loading email history:', e);
+                        return [];
+                    }}
+                }}
+                
+                // Save email to history
+                function saveEmailToHistory(email) {{
+                    try {{
+                        let emails = getEmailHistory();
+                        
+                        // Remove email if it already exists
+                        emails = emails.filter(e => e !== email);
+                        
+                        // Add to beginning of array
+                        emails.unshift(email);
+                        
+                        // Keep only the last 5 emails
+                        emails = emails.slice(0, 5);
+                        
+                        localStorage.setItem('cravemap_email_history', JSON.stringify(emails));
+                    }} catch (e) {{
+                        console.error('Error saving email:', e);
+                    }}
+                }}
+                
+                // Filter suggestions based on input
+                function getFilteredSuggestions(input) {{
+                    const emails = getEmailHistory();
+                    if (!input) return emails;
+                    
+                    return emails.filter(email => 
+                        email.toLowerCase().includes(input.toLowerCase())
+                    );
+                }}
+                
+                // Show suggestions
+                function showSuggestions() {{
+                    const input = emailInput.value;
+                    const suggestions = getFilteredSuggestions(input);
+                    
+                    if (suggestions.length === 0) {{
+                        hideSuggestions();
+                        return;
+                    }}
+                    
+                    suggestionsContainer.innerHTML = '';
+                    suggestions.forEach((email, index) => {{
+                        const div = document.createElement('div');
+                        div.className = 'email-suggestion';
+                        div.textContent = email;
+                        div.onclick = () => selectEmail(email);
+                        suggestionsContainer.appendChild(div);
+                    }});
+                    
+                    suggestionsContainer.style.display = 'block';
+                    selectedIndex = -1;
+                }}
+                
+                // Hide suggestions
+                function hideSuggestions() {{
+                    suggestionsContainer.style.display = 'none';
+                    selectedIndex = -1;
+                }}
+                
+                // Select email
+                function selectEmail(email) {{
+                    emailInput.value = email;
+                    hideSuggestions();
+                    emailInput.focus();
+                    
+                    // Store value for Streamlit
+                    sessionStorage.setItem('cravemap_current_email', email);
+                }}
+                
+                // Handle keyboard navigation
+                function handleKeyNavigation(e) {{
+                    const suggestions = suggestionsContainer.querySelectorAll('.email-suggestion');
+                    
+                    if (e.key === 'ArrowDown') {{
+                        e.preventDefault();
+                        selectedIndex = Math.min(selectedIndex + 1, suggestions.length - 1);
+                        updateSelection(suggestions);
+                    }} else if (e.key === 'ArrowUp') {{
+                        e.preventDefault();
+                        selectedIndex = Math.max(selectedIndex - 1, -1);
+                        updateSelection(suggestions);
+                    }} else if (e.key === 'Enter' && selectedIndex >= 0) {{
+                        e.preventDefault();
+                        selectEmail(suggestions[selectedIndex].textContent);
+                    }} else if (e.key === 'Escape') {{
+                        hideSuggestions();
+                    }}
+                }}
+                
+                // Update visual selection
+                function updateSelection(suggestions) {{
+                    suggestions.forEach((suggestion, index) => {{
+                        suggestion.classList.toggle('selected', index === selectedIndex);
+                    }});
+                }}
+                
+                // Event listeners
+                emailInput.addEventListener('focus', showSuggestions);
+                emailInput.addEventListener('input', function() {{
+                    showSuggestions();
+                    // Store current value for Streamlit
+                    sessionStorage.setItem('cravemap_current_email', emailInput.value);
+                }});
+                emailInput.addEventListener('keydown', handleKeyNavigation);
+                
+                // Hide suggestions when clicking outside
+                document.addEventListener('click', function(e) {{
+                    if (!e.target.closest('#email-autocomplete-container')) {{
+                        hideSuggestions();
+                    }}
+                }});
+                
+                // Expose functions to parent window for Streamlit integration
+                window.emailAutocomplete = {{
+                    getValue: () => emailInput.value,
+                    setValue: (value) => {{
+                        emailInput.value = value;
+                    }},
+                    saveEmail: (email) => {{
+                        if (email && email.includes('@')) {{
+                            saveEmailToHistory(email);
+                        }}
+                    }},
+                    getHistory: getEmailHistory
+                }};
+                
+                // Initialize with any stored value
+                const storedEmail = sessionStorage.getItem('cravemap_current_email') || '';
+                if (storedEmail) {{
+                    emailInput.value = storedEmail;
+                }}
+            }})();
+        </script>
+        """
+        
+        # Render the email autocomplete component
+        components.html(email_autocomplete_html, height=80)
+        
+        # Get email from session storage or manual input
+        email = st.sidebar.text_input("Or enter email manually:", key="manual_email_input", placeholder="your@email.com")
+        
+        # Form for remaining elements
         with st.sidebar.form("login_form"):
-            email = st.text_input("Enter your email:", placeholder="your@email.com", key="login_email", help="Enter your email to access premium features")
             remember_me = st.checkbox("Remember me on this device")
             submit = st.form_submit_button("Login")
             
@@ -254,6 +492,22 @@ def show_login_option():
                 if "@" in email and "." in email:  # Basic email validation
                     email = email.lower().strip()
                     st.session_state['user_email'] = email
+                    
+                    # Save email to localStorage for future suggestions
+                    save_email_js = f"""
+                    <script>
+                        try {{
+                            let emails = JSON.parse(localStorage.getItem('cravemap_email_history') || '[]');
+                            emails = emails.filter(e => e !== '{email}');
+                            emails.unshift('{email}');
+                            emails = emails.slice(0, 5);
+                            localStorage.setItem('cravemap_email_history', JSON.stringify(emails));
+                        }} catch (e) {{
+                            console.error('Error saving email:', e);
+                        }}
+                    </script>
+                    """
+                    components.html(save_email_js, height=0)
                     
                     # Load user data from PostgreSQL or create if not exists
                     user_data = None
@@ -316,7 +570,6 @@ def show_login_option():
                         st.rerun()
         except:
             pass
-
 def get_client_info():
     """Get client information for rate limiting"""
     # Try to get real IP address
