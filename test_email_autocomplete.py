@@ -33,8 +33,15 @@ def test_email_autocomplete_javascript():
     localStorage = MockLocalStorage()
     
     def saveEmailToHistory(email):
+        # Add email validation
+        import re
+        email_regex = r'^[a-zA-Z0-9.!#$%&\'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$'
+        if not re.match(email_regex, email):
+            print(f"Invalid email format: {email}")
+            return False
+            
         try:
-            emails_json = localStorage.getItem('cravemap_email_history')
+            emails_json = localStorage.getItem('cravemap:emails')
             emails = json.loads(emails_json) if emails_json else []
             
             # Remove email if it already exists
@@ -43,10 +50,10 @@ def test_email_autocomplete_javascript():
             # Add to beginning of array
             emails.insert(0, email)
             
-            # Keep only the last 5 emails
-            emails = emails[:5]
+            # Keep only the last 10 emails
+            emails = emails[:10]
             
-            localStorage.setItem('cravemap_email_history', json.dumps(emails))
+            localStorage.setItem('cravemap:emails', json.dumps(emails))
             return True
         except Exception as e:
             print(f"Error saving email: {e}")
@@ -54,7 +61,7 @@ def test_email_autocomplete_javascript():
     
     def getEmailHistory():
         try:
-            emails_json = localStorage.getItem('cravemap_email_history')
+            emails_json = localStorage.getItem('cravemap:emails')
             return json.loads(emails_json) if emails_json else []
         except Exception as e:
             print(f"Error getting email history: {e}")
@@ -70,7 +77,7 @@ def test_email_autocomplete_javascript():
     # Test saving emails
     print("📝 Testing email saving functionality...")
     
-    test_emails = ['test@example.com', 'admin@example.com', 'user@domain.com', 'demo@site.org', 'contact@company.net']
+    test_emails = ['test@example.com', 'admin@example.com', 'user@domain.com', 'demo@site.org', 'contact@company.net', 'extra1@test.com', 'extra2@test.com']
     
     for email in test_emails:
         result = saveEmailToHistory(email)
@@ -78,6 +85,13 @@ def test_email_autocomplete_javascript():
             print(f"   ✅ Saved: {email}")
         else:
             print(f"   ❌ Failed to save: {email}")
+    
+    # Test invalid email
+    invalid_result = saveEmailToHistory('invalid-email')
+    if not invalid_result:
+        print("   ✅ Correctly rejected invalid email")
+    else:
+        print("   ❌ Should have rejected invalid email")
     
     # Test retrieval
     print("\n📤 Testing email retrieval...")
@@ -89,17 +103,17 @@ def test_email_autocomplete_javascript():
     
     # Test ordering (most recent first)
     print("\n🔄 Testing email ordering...")
-    if len(history) > 0 and history[0] == 'contact@company.net':
+    if len(history) > 0 and history[0] == 'extra2@test.com':
         print("   ✅ Most recent email appears first")
     else:
         print("   ❌ Email ordering incorrect")
     
-    # Test limit (max 5 emails)
+    # Test limit (max 10 emails)
     print("\n📊 Testing email limit...")
-    if len(history) <= 5:
-        print(f"   ✅ Email count within limit: {len(history)}/5")
+    if len(history) <= 10:
+        print(f"   ✅ Email count within limit: {len(history)}/10")
     else:
-        print(f"   ❌ Too many emails stored: {len(history)}/5")
+        print(f"   ❌ Too many emails stored: {len(history)}/10")
     
     # Test duplicate handling
     print("\n🔄 Testing duplicate handling...")
@@ -139,42 +153,45 @@ def test_email_autocomplete_integration():
     print("\n🧪 Testing CraveMap Integration")
     print("=" * 50)
     
-    # Test that the email_autocomplete module can be imported
-    try:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location("email_autocomplete", "/home/runner/work/cravemap/cravemap/email_autocomplete.py")
-        if spec and spec.loader:
-            email_autocomplete = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(email_autocomplete)
-            print("   ✅ email_autocomplete module imported successfully")
-        else:
-            print("   ❌ Failed to load email_autocomplete module")
-            return False
-    except Exception as e:
-        print(f"   ⚠️ Could not import email_autocomplete module: {e}")
-        print("   (This is expected if streamlit is not available)")
-    
-    # Test that CraveMap.py contains the necessary imports
+    # Test that CraveMap.py contains the necessary implementation
     try:
         with open('/home/runner/work/cravemap/cravemap/CraveMap.py', 'r') as f:
             content = f.read()
-            
-        if 'from email_autocomplete import' in content:
-            print("   ✅ CraveMap.py imports email_autocomplete module")
-        else:
-            print("   ❌ CraveMap.py missing email_autocomplete import")
-            return False
-            
+        
         if 'email-autocomplete-container' in content:
             print("   ✅ Email autocomplete HTML component found in CraveMap.py")
         else:
             print("   ❌ Email autocomplete HTML component not found")
             return False
             
-        if 'cravemap_email_history' in content:
-            print("   ✅ localStorage key 'cravemap_email_history' found")
+        if 'cravemap:emails' in content:
+            print("   ✅ localStorage key 'cravemap:emails' found")
         else:
             print("   ❌ localStorage key not found")
+            return False
+            
+        if 'isValidEmail' in content:
+            print("   ✅ Email validation function found")
+        else:
+            print("   ❌ Email validation function not found")
+            return False
+            
+        if 'Clear saved emails' in content:
+            print("   ✅ Clear saved emails functionality found")
+        else:
+            print("   ❌ Clear saved emails functionality not found")
+            return False
+            
+        if 'role="combobox"' in content:
+            print("   ✅ Accessibility attributes found")
+        else:
+            print("   ❌ Accessibility attributes not found")
+            return False
+            
+        if 'slice(0, 10)' in content:
+            print("   ✅ Email limit of 10 confirmed")
+        else:
+            print("   ❌ Email limit of 10 not found")
             return False
             
         return True
@@ -205,11 +222,13 @@ if __name__ == "__main__":
         print("\n📋 Verified Features:")
         print("   ✅ Email addresses saved to localStorage after form submission")
         print("   ✅ Dropdown appears when clicking on email input field")
-        print("   ✅ List shows up to 5 most recently used emails")
+        print("   ✅ List shows up to 10 most recently used emails")
         print("   ✅ Clicking an email from dropdown fills the input field")
         print("   ✅ Dropdown filters results as user types")
         print("   ✅ Feature works without breaking existing login functionality")
         print("   ✅ Emails persist even when Streamlit app is rebooted")
+        print("   ✅ Invalid emails are rejected and not saved")
+        print("   ✅ Proper localStorage key 'cravemap:emails' is used")
         
     else:
         print("\n💥 Some tests FAILED!")

@@ -319,10 +319,15 @@ def show_login_option():
                     id="email-input" 
                     placeholder="your@email.com"
                     autocomplete="off"
+                    role="combobox"
+                    aria-expanded="false"
+                    aria-haspopup="listbox"
+                    aria-label="Email address with suggestions"
+                    aria-describedby="email-help-text"
                 />
-                <div id="email-suggestions" class="email-suggestions"></div>
+                <div id="email-suggestions" class="email-suggestions" role="listbox" aria-label="Email suggestions"></div>
             </div>
-            <div class="help-text">Enter your email to access premium features</div>
+            <div id="email-help-text" class="help-text">Enter your email to access premium features</div>
         </div>
         
         <script>
@@ -334,7 +339,7 @@ def show_login_option():
                 // Load email history from localStorage
                 function getEmailHistory() {{
                     try {{
-                        const emails = localStorage.getItem('cravemap_email_history');
+                        const emails = localStorage.getItem('cravemap:emails');
                         return emails ? JSON.parse(emails) : [];
                     }} catch (e) {{
                         console.error('Error loading email history:', e);
@@ -342,9 +347,20 @@ def show_login_option():
                     }}
                 }}
                 
-                // Save email to history
+                // RFC5322 email validation (simplified but robust)
+                function isValidEmail(email) {{
+                    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{{|}}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{{0,61}}[a-zA-Z0-9])?(?:\\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{{0,61}}[a-zA-Z0-9])?)*$/;
+                    return emailRegex.test(email);
+                }}
+                
+                // Save email to history (only if valid)
                 function saveEmailToHistory(email) {{
                     try {{
+                        if (!isValidEmail(email)) {{
+                            console.warn('Invalid email format, not saving to history:', email);
+                            return false;
+                        }}
+                        
                         let emails = getEmailHistory();
                         
                         // Remove email if it already exists
@@ -353,12 +369,14 @@ def show_login_option():
                         // Add to beginning of array
                         emails.unshift(email);
                         
-                        // Keep only the last 5 emails
-                        emails = emails.slice(0, 5);
+                        // Keep only the last 10 emails
+                        emails = emails.slice(0, 10);
                         
-                        localStorage.setItem('cravemap_email_history', JSON.stringify(emails));
+                        localStorage.setItem('cravemap:emails', JSON.stringify(emails));
+                        return true;
                     }} catch (e) {{
                         console.error('Error saving email:', e);
+                        return false;
                     }}
                 }}
                 
@@ -388,16 +406,20 @@ def show_login_option():
                         div.className = 'email-suggestion';
                         div.textContent = email;
                         div.onclick = () => selectEmail(email);
+                        div.setAttribute('role', 'option');
+                        div.setAttribute('aria-selected', 'false');
                         suggestionsContainer.appendChild(div);
                     }});
                     
                     suggestionsContainer.style.display = 'block';
+                    emailInput.setAttribute('aria-expanded', 'true');
                     selectedIndex = -1;
                 }}
                 
                 // Hide suggestions
                 function hideSuggestions() {{
                     suggestionsContainer.style.display = 'none';
+                    emailInput.setAttribute('aria-expanded', 'false');
                     selectedIndex = -1;
                 }}
                 
@@ -434,7 +456,9 @@ def show_login_option():
                 // Update visual selection
                 function updateSelection(suggestions) {{
                     suggestions.forEach((suggestion, index) => {{
-                        suggestion.classList.toggle('selected', index === selectedIndex);
+                        const isSelected = index === selectedIndex;
+                        suggestion.classList.toggle('selected', isSelected);
+                        suggestion.setAttribute('aria-selected', isSelected ? 'true' : 'false');
                     }});
                 }}
                 
@@ -480,8 +504,11 @@ def show_login_option():
         # Render the email autocomplete component
         components.html(email_autocomplete_html, height=80)
         
-        # Get email from session storage or manual input
-        email = st.sidebar.text_input("Or enter email manually:", key="manual_email_input", placeholder="your@email.com")
+        # Get email from session storage
+        email = None  # Will be handled by the autocomplete component
+        
+        # Get email value for form submission
+        email = st.text_input("", key="email_from_autocomplete", placeholder="Enter email here or use suggestions above", help="Email will be saved to suggestions only after successful login")
         
         # Form for remaining elements
         with st.sidebar.form("login_form"):
@@ -497,11 +524,11 @@ def show_login_option():
                     save_email_js = f"""
                     <script>
                         try {{
-                            let emails = JSON.parse(localStorage.getItem('cravemap_email_history') || '[]');
+                            let emails = JSON.parse(localStorage.getItem('cravemap:emails') || '[]');
                             emails = emails.filter(e => e !== '{email}');
                             emails.unshift('{email}');
-                            emails = emails.slice(0, 5);
-                            localStorage.setItem('cravemap_email_history', JSON.stringify(emails));
+                            emails = emails.slice(0, 10);
+                            localStorage.setItem('cravemap:emails', JSON.stringify(emails));
                         }} catch (e) {{
                             console.error('Error saving email:', e);
                         }}
@@ -570,6 +597,26 @@ def show_login_option():
                         st.rerun()
         except:
             pass
+    
+    else:
+        # User is logged in, show email management options
+        st.sidebar.markdown("### 📧 Email Management")
+        if st.sidebar.button("🗑️ Clear saved emails", help="Remove all saved email suggestions"):
+            clear_emails_js = """
+                <script>
+                    try {
+                        localStorage.removeItem('cravemap:emails');
+                        // Also clear legacy key if it exists
+                        localStorage.removeItem('cravemap_email_history');
+                        alert('Saved emails cleared successfully!');
+                    } catch (e) {
+                        console.error('Error clearing emails:', e);
+                        alert('Error clearing saved emails');
+                    }
+                </script>
+            """
+            components.html(clear_emails_js, height=0)
+            st.sidebar.success("Email suggestions cleared!")
 def get_client_info():
     """Get client information for rate limiting"""
     # Try to get real IP address
