@@ -501,14 +501,16 @@ def show_login_option():
         </script>
         """
         
-        # Render the email autocomplete component
-        components.html(email_autocomplete_html, height=80)
+        # Render the email autocomplete component in sidebar
+        with st.sidebar:
+            components.html(email_autocomplete_html, height=80)
         
         # Get email from session storage
         email = None  # Will be handled by the autocomplete component
         
-        # Get email value for form submission
-        email = st.text_input("", key="email_from_autocomplete", placeholder="Enter email here or use suggestions above", help="Email will be saved to suggestions only after successful login")
+        # Get email value for form submission in sidebar  
+        with st.sidebar:
+            email = st.text_input("", key="email_from_autocomplete", placeholder="Enter email here or use suggestions above", help="Email will be saved to suggestions only after successful login")
         
         # Form for remaining elements
         with st.sidebar.form("login_form"):
@@ -615,7 +617,8 @@ def show_login_option():
                     }
                 </script>
             """
-            components.html(clear_emails_js, height=0)
+            with st.sidebar:
+                components.html(clear_emails_js, height=0)
             st.sidebar.success("Email suggestions cleared!")
 def get_client_info():
     """Get client information for rate limiting"""
@@ -1628,7 +1631,7 @@ if user_email:
     # Logged in user
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown(f"**Status:** {premium_badge} | **User:** {user_email}")
+        st.markdown(f"**Status:** {premium_badge}")
     with col2:
         if st.button("🚪 Logout"):
             # Clear session
