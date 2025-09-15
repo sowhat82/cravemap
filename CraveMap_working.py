@@ -247,8 +247,8 @@ def show_login_option():
         # Email input with autocomplete (outside form due to component limitations)
         st.sidebar.markdown("**Enter your email:**")
         
-        # Create the email autocomplete component in sidebar
-        email_autocomplete_html = f"""
+        # Single email input field with autocomplete functionality
+        email = st.text_input("", key="login_email", placeholder="Enter your email", help="Email will be saved to suggestions after successful login")
         <div id="email-autocomplete-container">
             <style>
                 .email-input-container {{
@@ -316,7 +316,6 @@ def show_login_option():
                 <input 
                     type="email" 
                     id="email-input" 
-                    style="display: none;"
                     placeholder="your@email.com"
                     autocomplete="off"
                     role="combobox"
@@ -332,51 +331,9 @@ def show_login_option():
         
         <script>
             (function() {{
-                // Find the Streamlit email input
-                const findStreamlitEmailInput = () => {{
-                    // Look for the text input with the specific placeholder
-                    const inputs = window.parent.document.querySelectorAll('input[placeholder="Enter your email"]');
-                    return inputs.length > 0 ? inputs[0] : null;
-                }};
-                
-                let emailInput = null;
+                const emailInput = document.getElementById('email-input');
                 const suggestionsContainer = document.getElementById('email-suggestions');
                 let selectedIndex = -1;
-                
-                // Setup function that tries to find and enhance the Streamlit input
-                const setupAutocomplete = () => {{
-                    emailInput = findStreamlitEmailInput();
-                    if (!emailInput) {{
-                        // Try again later
-                        setTimeout(setupAutocomplete, 500);
-                        return;
-                    }}
-                    
-                    // Position suggestions container near the input
-                    const inputRect = emailInput.getBoundingClientRect();
-                    const containerRect = emailInput.closest('[data-testid="stSidebar"]').getBoundingClientRect();
-                    
-                    // Apply styling to make suggestions appear correctly
-                    suggestionsContainer.style.position = 'fixed';
-                    suggestionsContainer.style.left = inputRect.left + 'px';
-                    suggestionsContainer.style.top = (inputRect.bottom + 2) + 'px';
-                    suggestionsContainer.style.width = inputRect.width + 'px';
-                    suggestionsContainer.style.zIndex = '9999';
-                    
-                    // Add event listeners to the Streamlit input
-                    emailInput.addEventListener('focus', showSuggestions);
-                    emailInput.addEventListener('input', () => {{
-                        showSuggestions();
-                        sessionStorage.setItem('cravemap_current_email', emailInput.value);
-                    }});
-                    emailInput.addEventListener('blur', () => {{
-                        setTimeout(hideSuggestions, 200);
-                    }});
-                    emailInput.addEventListener('keydown', handleKeyNavigation);
-                }};
-                
-                // Start setup
-                setupAutocomplete();
                 
                 // Load email history from localStorage
                 function getEmailHistory() {{
@@ -543,16 +500,174 @@ def show_login_option():
         </script>
         """
         
-        # Render the email autocomplete component in sidebar
-        with st.sidebar:
-            components.html(email_autocomplete_html, height=80)
+        # Single email input field with autocomplete functionality
+        email = st.text_input("", key="login_email", placeholder="Enter your email", help="Email will be saved to suggestions after successful login")
         
-        # Get email from session storage
-        email = None  # Will be handled by the autocomplete component
+        # Add autocomplete functionality to the existing text input
+        autocomplete_enhancement_js = f"""
+        <div id="email-suggestions-container" style="position: relative; z-index: 1000;"></div>
         
-        # Email input field (the autocomplete will enhance this)
+        <script>
+            (function() {{
+                // Email validation
+                const isValidEmail = (email) => {{
+                    const re = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{{|}}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{{0,61}}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{{0,61}}[a-zA-Z0-9])?)*$/;
+                    return re.test(email);
+                }};
+                
+                // Email history management
+                const getEmailHistory = () => {{
+                    try {{
+                        const emails = JSON.parse(localStorage.getItem('cravemap:emails') || '[]');
+                        return emails.slice(0, 10);
+                    }} catch (e) {{
+                        return [];
+                    }}
+                }};
+                
+                const saveEmailToHistory = (email) => {{
+                    if (!isValidEmail(email)) return;
+                    try {{
+                        let emails = getEmailHistory();
+                        emails = emails.filter(e => e !== email);
+                        emails.unshift(email);
+                        emails = emails.slice(0, 10);
+                        localStorage.setItem('cravemap:emails', JSON.stringify(emails));
+                    }} catch (e) {{
+                        console.error('Error saving email:', e);
+                    }}
+                }};
+                
+                // Find the Streamlit text input
+                const findEmailInput = () => {{
+                    const inputs = document.querySelectorAll('input[aria-label=""]');
+                    for (let input of inputs) {{
+                        if (input.placeholder === 'Enter your email') {{
+                            return input;
+                        }}
+                    }}
+                    return null;
+                }};
+                
+                // Set up autocomplete
+                const setupAutocomplete = () => {{
+                    const emailInput = findEmailInput();
+                    if (!emailInput || emailInput.hasAttribute('data-autocomplete-setup')) {{
+                        return;
+                    }}
+                    
+                    emailInput.setAttribute('data-autocomplete-setup', 'true');
+                    
+                    // Create suggestions dropdown
+                    const suggestionsDiv = document.createElement('div');
+                    suggestionsDiv.style.cssText = `
+                        position: absolute;
+                        top: 100%;
+                        left: 0;
+                        right: 0;
+                        background: white;
+                        border: 1px solid #ccc;
+                        border-top: none;
+                        max-height: 200px;
+                        overflow-y: auto;
+                        z-index: 1000;
+                        display: none;
+                    `;
+                    
+                    // Insert suggestions dropdown after the input
+                    const inputContainer = emailInput.parentElement;
+                    inputContainer.style.position = 'relative';
+                    inputContainer.appendChild(suggestionsDiv);
+                    
+                    // Handle focus and input events
+                    emailInput.addEventListener('focus', () => {{
+                        showSuggestions();
+                    }});
+                    
+                    emailInput.addEventListener('input', () => {{
+                        showSuggestions();
+                    }});
+                    
+                    emailInput.addEventListener('blur', (e) => {{
+                        // Delay hiding to allow click on suggestions
+                        setTimeout(() => {{
+                            suggestionsDiv.style.display = 'none';
+                        }}, 150);
+                    }});
+                    
+                    const showSuggestions = () => {{
+                        const query = emailInput.value.toLowerCase();
+                        const emails = getEmailHistory();
+                        const filtered = query ? emails.filter(email => email.toLowerCase().includes(query)) : emails;
+                        
+                        if (filtered.length === 0) {{
+                            suggestionsDiv.style.display = 'none';
+                            return;
+                        }}
+                        
+                        suggestionsDiv.innerHTML = '';
+                        filtered.forEach(email => {{
+                            const item = document.createElement('div');
+                            item.style.cssText = 'padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;';
+                            item.textContent = email;
+                            item.addEventListener('mouseenter', () => {{
+                                item.style.backgroundColor = '#f0f0f0';
+                            }});
+                            item.addEventListener('mouseleave', () => {{
+                                item.style.backgroundColor = 'white';
+                            }});
+                            item.addEventListener('click', () => {{
+                                emailInput.value = email;
+                                emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                                emailInput.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                                suggestionsDiv.style.display = 'none';
+                                emailInput.focus();
+                            }});
+                            suggestionsDiv.appendChild(item);
+                        }});
+                        
+                        suggestionsDiv.style.display = 'block';
+                    }};
+                    
+                    // Load saved email on page load
+                    const savedEmail = sessionStorage.getItem('cravemap_current_email') || '';
+                    if (savedEmail && !emailInput.value) {{
+                        emailInput.value = savedEmail;
+                        emailInput.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    }}
+                }};
+                
+                // Try to setup immediately and periodically until successful
+                setupAutocomplete();
+                const setupInterval = setInterval(() => {{
+                    const emailInput = findEmailInput();
+                    if (emailInput && !emailInput.hasAttribute('data-autocomplete-setup')) {{
+                        setupAutocomplete();
+                    }}
+                    if (emailInput && emailInput.hasAttribute('data-autocomplete-setup')) {{
+                        clearInterval(setupInterval);
+                    }}
+                }}, 500);
+                
+                // Clear interval after 10 seconds to avoid infinite loop
+                setTimeout(() => {{
+                    clearInterval(setupInterval);
+                }}, 10000);
+                
+                // Expose function to save email from Streamlit
+                window.saveEmailFromLogin = (email) => {{
+                    if (isValidEmail(email)) {{
+                        saveEmailToHistory(email);
+                        sessionStorage.setItem('cravemap_current_email', email);
+                    }}
+                }};
+            }})();
+        </script>
+        """
+        
+        # Render the autocomplete enhancement
         with st.sidebar:
-            email = st.text_input("", key="email_field", placeholder="Enter your email", help="Previous emails will be suggested as you type")
+            components.html(autocomplete_enhancement_js, height=0)
         
         # Form for remaining elements
         with st.sidebar.form("login_form"):
