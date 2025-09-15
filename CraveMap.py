@@ -29,7 +29,6 @@ try:
     # Test PostgreSQL connection
     postgres_success, postgres_message = postgres_db.test_connection()
     if postgres_success:
-        st.info("🟢 PostgreSQL database connected successfully")
         db = None  # Use PostgreSQL primarily
     else:
         st.warning(f"⚠️ PostgreSQL connection failed: {postgres_message}. Using SQLite fallback.")
