@@ -316,6 +316,7 @@ def show_login_option():
                 <input 
                     type="email" 
                     id="email-input" 
+                    style="display: none;"
                     placeholder="your@email.com"
                     autocomplete="off"
                     role="combobox"
@@ -331,9 +332,51 @@ def show_login_option():
         
         <script>
             (function() {{
-                const emailInput = document.getElementById('email-input');
+                // Find the Streamlit email input
+                const findStreamlitEmailInput = () => {{
+                    // Look for the text input with the specific placeholder
+                    const inputs = window.parent.document.querySelectorAll('input[placeholder="Enter your email"]');
+                    return inputs.length > 0 ? inputs[0] : null;
+                }};
+                
+                let emailInput = null;
                 const suggestionsContainer = document.getElementById('email-suggestions');
                 let selectedIndex = -1;
+                
+                // Setup function that tries to find and enhance the Streamlit input
+                const setupAutocomplete = () => {{
+                    emailInput = findStreamlitEmailInput();
+                    if (!emailInput) {{
+                        // Try again later
+                        setTimeout(setupAutocomplete, 500);
+                        return;
+                    }}
+                    
+                    // Position suggestions container near the input
+                    const inputRect = emailInput.getBoundingClientRect();
+                    const containerRect = emailInput.closest('[data-testid="stSidebar"]').getBoundingClientRect();
+                    
+                    // Apply styling to make suggestions appear correctly
+                    suggestionsContainer.style.position = 'fixed';
+                    suggestionsContainer.style.left = inputRect.left + 'px';
+                    suggestionsContainer.style.top = (inputRect.bottom + 2) + 'px';
+                    suggestionsContainer.style.width = inputRect.width + 'px';
+                    suggestionsContainer.style.zIndex = '9999';
+                    
+                    // Add event listeners to the Streamlit input
+                    emailInput.addEventListener('focus', showSuggestions);
+                    emailInput.addEventListener('input', () => {{
+                        showSuggestions();
+                        sessionStorage.setItem('cravemap_current_email', emailInput.value);
+                    }});
+                    emailInput.addEventListener('blur', () => {{
+                        setTimeout(hideSuggestions, 200);
+                    }});
+                    emailInput.addEventListener('keydown', handleKeyNavigation);
+                }};
+                
+                // Start setup
+                setupAutocomplete();
                 
                 // Load email history from localStorage
                 function getEmailHistory() {{
@@ -507,9 +550,9 @@ def show_login_option():
         # Get email from session storage
         email = None  # Will be handled by the autocomplete component
         
-        # Get email value for form submission in sidebar  
+        # Email input field (the autocomplete will enhance this)
         with st.sidebar:
-            email = st.text_input("", key="email_from_autocomplete", placeholder="Enter email here or use suggestions above", help="Email will be saved to suggestions only after successful login")
+            email = st.text_input("", key="email_field", placeholder="Enter your email", help="Previous emails will be suggested as you type")
         
         # Form for remaining elements
         with st.sidebar.form("login_form"):
