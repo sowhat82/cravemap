@@ -6,3 +6,5 @@ stripe
 streamlit-authenticator
 bcrypt
 psycopg2-binary
+flask
+gunicorn

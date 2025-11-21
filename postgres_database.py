@@ -72,10 +72,23 @@ class PostgresDatabase:
                     phone VARCHAR(20),
                     is_premium BOOLEAN DEFAULT FALSE,
                     premium_expiry TIMESTAMP,
+                    stripe_customer_id VARCHAR(255),
+                    stripe_subscription_id VARCHAR(255),
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Add stripe columns if they don't exist (migration for existing tables)
+            try:
+                cursor.execute("""
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR(255)
+                """)
+                cursor.execute("""
+                    ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id VARCHAR(255)
+                """)
+            except Exception:
+                pass  # Columns may already exist
             
             # Create support_tickets table
             cursor.execute("""
